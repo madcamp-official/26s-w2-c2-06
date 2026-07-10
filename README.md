@@ -101,7 +101,7 @@
    저장 (PostgreSQL) + 캐시 갱신 → 응답 반환
 ```
  
-- **LLM**: Gemini 2.5 Flash / Flash-Lite (무료 티어)
+- **LLM**: Gemini 3.5 Flash / 3.1 Flash-Lite (무료 티어)
 - **RAG 저장소**: PostgreSQL + pgvector (별도 벡터DB 없이 단일 DB로 처리)
 - **레이트리밋/캐시**: Redis (분당 요청 수 제한 + 응답 캐싱)
 
