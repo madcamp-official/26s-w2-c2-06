@@ -22,42 +22,42 @@
 
 | 이름 | 학교 | GitHub | 역할 |
 |---|---|---|---|
-| 임유빈 |  |  |  |
-| 김경원 |  |  |  |
+| 임유빈 | 서울대학교 | [@lunar-yoobin](https://github.com/lunar-yoobin) | FE |
+| 김경원 | 한양대학교 | [@kkw610](https://github.com/kkw610) | BE |
 
 ---
 
 ## 선택 옵션
 
 - [ ] 실시간 인터랙션
-- [ ] LLM Wrapper
+- [x] LLM Wrapper
 - [ ] Cross-Platform
 
 ---
 
 ## 기획안
 
-- **산출물 주제:**
-- **제작 목적:**
-- **선택 옵션:**
+- **산출물 주제:** AI Champion - 중간관리자 대상 AX(AI 전환) 맞춤 로드맵 생성 서비스
+- **제작 목적:** 기존 AX 지원 서비스가 B2B 엔터프라이즈 중심인 것과 달리, 관리자 개인 단위에서 산업별 Best Practice를 검색해 팀 업무에 바로 적용 가능한 로드맵을 LLM으로 생성해주는 도구를 구현
+- **선택 옵션:** LLM Wrapper (Gemini API 사용 예정)
 - **핵심 구현 요소:**
-  -
-  -
-  -
-- **사용 / 시연 시나리오:**
+  - 온보딩 대화형 인터뷰로 산업/직무/팀 상황 수집
+  - RAG 기반 산업별 AX Best Practice 검색 및 요약
+  - 협업체계/자동화 포인트/평가지표로 구성된 맞춤형 로드맵(구조화된 JSON) 생성
+- **사용 / 시연 시나리오:** 관리자가 온보딩 질문에 답변 → RAG가 관련 리포트에서 유사 사례를 검색 → 사용자 상황에 맞춰 재구성된 로드맵을 카드 형태로 제시
 - **팀원별 역할:**
 
 ### 개발 일정
 
 | 날짜 | 목표 |
 |---|---|
-| Day 1 |  |
-| Day 2 |  |
-| Day 3 |  |
-| Day 4 |  |
-| Day 5 |  |
-| Day 6 |  |
-| Day 7 |  |
+| Day 1 | 환경 세팅, Gemini API·DB 연동 테스트 |
+| Day 2 | AX 리포트 수집·청킹·임베딩 (RAG 데이터 구축) |
+| Day 3 | 온보딩 대화 플로우 + RAG 검색 API 구현 |
+| Day 4 | 로드맵 생성 프롬프트 및 구조화된 출력 설계 |
+| Day 5 | 프론트엔드 연동, 로드맵 결과 UI 구현 |
+| Day 6 | 레이트리밋·캐싱 안정화, 통합 테스트 |
+| Day 7 | 배포 및 시연 자료 준비 |
 
 ---
 
@@ -65,16 +65,45 @@
 
 | 구현 요소 | 설명 | 우선순위 |
 |---|---|---|
-|  |  | 필수 |
-|  |  | 필수 |
-|  |  | 선택 |
-|  |  | 선택 |
+| 온보딩 대화형 인터뷰 | 산업/직무/팀 규모/AX 활용 단계 수집 | 필수 |
+| RAG 리서치 검색 | 사용자 프로필 기반 유사 BP 청크 검색·요약 | 필수 |
+| 맞춤형 로드맵 생성 | 협업체계·자동화 포인트·평가지표 JSON 생성 | 필수 |
+| 프롬프트 예시 제공 | 자동화 포인트별 바로 쓸 수 있는 프롬프트 생성 | 선택 |
+| 주간 체크인 코칭 | 로드맵 실행 여부 트래킹 및 코칭 메시지 생성 | 선택 |
 
 ---
 
 ## 아키텍처
 
 <!-- 실시간 인터랙션: WebSocket/SSE/WebRTC 구조도 / LLM Wrapper: API 연동 흐름도 / Cross-Platform: 플랫폼 구성도 -->
+
+```
+사용자 요청
+   │
+   ▼
+프론트엔드 (Next.js)
+   │
+   ▼
+백엔드 API (FastAPI)
+   │
+   ├─▶ 캐시 확인 (Redis) ── hit ──▶ 응답 반환
+   │        │ miss
+   │        ▼
+   ├─▶ RAG 검색 (PostgreSQL + pgvector)
+   │        │
+   │        ▼
+   ├─▶ 레이트리밋 큐 (15 RPM / 1,500 RPD 준수)
+   │        │
+   │        ▼
+   └─▶ Gemini Flash API (구조화된 JSON 생성)
+            │
+            ▼
+   저장 (PostgreSQL) + 캐시 갱신 → 응답 반환
+```
+ 
+- **LLM**: Gemini 2.5 Flash / Flash-Lite (무료 티어)
+- **RAG 저장소**: PostgreSQL + pgvector (별도 벡터DB 없이 단일 DB로 처리)
+- **레이트리밋/캐시**: Redis (분당 요청 수 제한 + 응답 캐싱)
 
 ---
 
@@ -85,16 +114,45 @@
 ### 화면 / 인터페이스 설계
 
 <!-- Figma 링크, 화면 이미지, CLI 사용 예시, 앱 화면 등 -->
+- 온보딩 챗봇 화면: 산업/직무/팀 상황을 대화형으로 수집
+- 로드맵 결과 화면: 협업체계 / 자동화 포인트 / 평가지표 3개 섹션 카드 UI
+- (Figma 링크 추후 추가)
 
 ### 데이터 구조
 
 <!-- DB 스키마, JSON 구조, 파일 저장 방식 등 -->
+```sql
+CREATE TABLE users (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    industry VARCHAR(50),
+    role VARCHAR(50),
+    team_size INT,
+    ax_stage VARCHAR(20)  -- 관심/시범/확산/embed
+);
+ 
+CREATE TABLE report_chunks (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    source VARCHAR(100),
+    industry VARCHAR(50),
+    content TEXT,
+    embedding VECTOR(768)
+);
+ 
+CREATE TABLE roadmaps (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID REFERENCES users(id),
+    content JSONB,  -- {collaboration, automation_points, metrics}
+    created_at TIMESTAMP DEFAULT now()
+);
+```
 
 ### API / 외부 서비스 연동
 
 | Method / 방식 | Endpoint / 서비스 | 설명 | 요청 | 응답 | 비고 |
 |---|---|---|---|---|---|
-|  |  |  |  |  |  |
+| POST | `/onboarding` | 사용자 프로필 수집 | 산업, 직무, 팀 규모 등 | user_id | - |
+| POST | `/roadmap/generate` | 로드맵 생성 요청 | user_id | roadmap JSON | Gemini Flash 호출 |
+| Google Generative AI SDK | Gemini API | LLM 생성 및 임베딩 | 프롬프트/텍스트 | 텍스트 또는 벡터 | 무료 티어(RPM 제한 있음) |
 
 ---
 
