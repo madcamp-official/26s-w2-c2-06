@@ -244,5 +244,5 @@ $RECYCLE.BIN/
 # Windows shortcuts
 *.lnk
 
-# Claude
-CLAUDE.md
+# Claude Code local-only context (not shared)
+.claude/CLAUDE.local.md
