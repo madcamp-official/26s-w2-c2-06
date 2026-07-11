@@ -74,5 +74,8 @@ $RECYCLE.BIN/
 # Windows shortcuts
 *.lnk
 
+# Environment variable
+.env
+
 # Claude
 CLAUDE.md
