@@ -163,28 +163,47 @@ CREATE TABLE roadmaps (
 - **실행 방법:**
 - **시연 영상 / 이미지:** (선택)
 
-### 실행 방법
+백엔드 관련 파일은 전부 `backend/` 아래에 있습니다 (프론트엔드가 추가되면 `frontend/`가 별도로 생길 예정).
+
+**방법 A. docker-compose로 전체 스택 실행 (권장 — 팀원 간 동일 환경 보장)**
 
 ```bash
-# 환경 설정
-cp .env.example .env
+cd backend
+cp .env.example .env   # 필요한 키(GEMINI_API_KEY 등) 채우기
 
-# 의존성 설치
-npm install   # 또는 pip install -r requirements.txt 등
+docker compose up --build
+# app: http://localhost:8000  (DB/Redis는 컨테이너 내부에서 자동 연결됨)
+# 컨테이너 기동 시 alembic 마이그레이션 자동 적용
+```
 
-# 실행
-npm run dev   # 또는 python main.py 등
+**방법 B. 로컬(uv)로 백엔드만 직접 실행**
+
+```bash
+cd backend
+
+# 의존성 설치 (uv 사용, 또는 pip install -r requirements.txt)
+uv sync
+
+cp .env.example .env   # DATABASE_URL/REDIS_URL을 로컬에 맞게 조정
+
+# DB/Redis는 직접 띄우거나 docker compose up db redis 로 그 두 개만 기동
+uv run alembic upgrade head
+uv run uvicorn app.main:app --reload
+
+# 테스트
+uv run pytest
 ```
 
 ### 기술 구성
 
 | 분류 | 사용 기술 |
 |---|---|
-| 핵심 기술 |  |
-| 실행 환경 |  |
-| 데이터 저장 |  |
-| 외부 API / 서비스 |  |
-| 기타 |  |
+| 핵심 기술 | FastAPI, Pydantic |
+| 실행 환경 | Python 3.11, uv (패키지 매니저), Docker / docker-compose |
+| 데이터 저장 | PostgreSQL 16 + pgvector, Redis |
+| 마이그레이션 | Alembic |
+| 외부 API / 서비스 | Gemini API, Notion API |
+| 기타 | 학교 ML 서버(GPU, CAMP-10) — 임베딩/RAG 서빙용, KCloud VPN 필요 |
 
 ---
 
