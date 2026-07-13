@@ -2,8 +2,8 @@
 
 > `SPEC.md` 4.3(BP 리서치 엔진)·4.4(맞춤 로드맵 + 평가 지표 생성)를 구현하기 위한 공통 기술 계약. 두 기능 담당자 모두 이 문서를 기준으로 작업하고, 각자의 세부 구현은 `SPRINT1_FEATURE3_BP_RESEARCH.md` / `SPRINT1_FEATURE4_ROADMAP_GENERATOR.md`에 기록한다. **이 계약이 바뀌면 두 담당자 모두에게 공유하고 이 문서를 갱신한다.**
 
-- 최종 수정일: 2026-07-11
-- 상태: v0.2 (아키텍처·기술 스택·인터페이스 확정. 담당자는 확정 사항에 이견 시 8절 변경 절차로 제기)
+- 최종 수정일: 2026-07-13
+- 상태: v0.3 (리서치 캐싱 정책·API 키 분리 정책·HTTP 오케스트레이션 확정, OnboardingData 임시 스키마 추가. 담당자는 확정 사항에 이견 시 8절 변경 절차로 제기)
 
 ---
 
@@ -31,6 +31,45 @@
 ```
 
 이 예시처럼 목표는 이미 조직 환경(허용 도구, 연동 시스템, 보안 제약)을 담고 있고, 1번에서 수집한 반복 업무 후보도 참조로 들고 있다. 이 스키마는 `contracts/goal.py`(`GoalDefinition`)로 코드화하며, 스프린트1 동안 `fixtures/goal_001.json`을 표준 입력 픽스처로 사용한다.
+
+### 1.1 온보딩 데이터 — `OnboardingData` (임시 스키마, v0.3 추가)
+
+> **⚠️ 임시(기능 1 확정 전).** 기능 1(온보딩 인터뷰)의 정식 산출물 스키마가 아직 확정되지 않았다. 아래는 기능 4 담당자가 개발을 시작하기 위해 `app/contracts/onboarding.py`에 임시로 정의한 스키마(파일이 아직 없으면 본 절이 그 초안)이며, 근거는 `SPEC.md` 4.1의 출력(팀 프로필 + 반복 업무 리스트 + 팀원 태깅)이다. 기능 1이 확정되면 8절 변경 절차로 정식화한다. 소유권은 기능 4 담당자(임시 정의자)에게 있으며 기능 3은 이 스키마를 사용하지 않는다(`run_research`의 입력은 `GoalDefinition`뿐).
+
+```json
+{
+  "team_profile": {
+    "industry": "제조",
+    "team_size": 8,
+    "ai_adoption_level": "가끔 필요할 때 씀"
+  },
+  "repetitive_tasks": [
+    {
+      "task_name": "월간 보고서 작성",
+      "frequency": "매월",
+      "is_structured": true,
+      "avg_duration_min": 180,
+      "contains_sensitive_info": true,
+      "current_method": "엑셀 수기 취합 후 워드 작성"
+    }
+  ],
+  "member_tags": [
+    {
+      "member_alias": "M1",
+      "strengths": ["데이터 정리"],
+      "ai_comfort_level": "높음",
+      "workload": "중"
+    }
+  ]
+}
+```
+
+**규약 (임시)**
+
+- `ai_adoption_level`: SPEC 4.1의 4단계 — `"안 씀" | "궁금해서 써봄" | "가끔 필요할 때 씀" | "업무에 적극 활용"`.
+- `repetitive_tasks[]`: SPEC 4.1 "반복 업무 상세"의 최소 필드(빈도/정형성/평균 소요시간/민감정보 여부/기존 처리 방식). `avg_duration_min`·`current_method`는 nullable.
+- `member_tags[]`: SPEC 4.1 "(선택) 팀원 태깅" — **이름 대신 익명 식별자**(`member_alias`, 예: `M1`) 사용 (SPEC 2.6·4.1 정책). 선택 항목이므로 기본값 빈 배열.
+- `generate_roadmap()`가 역할 재분배 제안(SPEC 4.4)과 반복 업무 참조에 사용한다. 스프린트1 픽스처는 `fixtures/onboarding_goal_001.json`(있으면)으로 제공하되, 파일 소유·검수는 기능 4 담당자 몫이다.
 
 ## 2. 아키텍처 확정 사항 (v0.2에서 결정)
 
@@ -81,6 +120,21 @@ app/
 tests/
   test_contracts.py   # 양쪽 출력의 스키마 검증 (공동)
 ```
+
+### 2.4 HTTP 오케스트레이션 & 리서치 캐싱 (v0.3에서 결정)
+
+**HTTP 오케스트레이션 — 리서치 레이어는 API에 비노출.**
+
+- `POST /roadmap/generate`는 **목표 정의서(`GoalDefinition`)만** 요청 바디로 받는다. `ResearchContext`를 요청 바디로 받지 않는다.
+- 엔드포인트 핸들러가 내부에서 `run_research(goal)` → `generate_roadmap(goal, research, onboarding, ...)`를 **순차 호출**한다. 즉 리서치는 서버 내부 단계이며 클라이언트는 그 존재를 모른다.
+- 근거: `SPEC.md` 4.3 — BP 리서치 엔진은 사용자에게 노출되지 않는 백엔드 리서치 레이어다. 리서치 결과를 외부로 노출/입력받는 경로를 만들지 않는다.
+- 함수 시그니처(2.3절)는 그대로다. 이 절은 그 두 함수를 **HTTP 레벨에서 누가 엮는가**만 고정한다. 엔드포인트/오케스트레이션 코드는 `roadmap/`(또는 `routers/`) 소유이며, 기능 3은 `run_research()`만 제공한다.
+
+**리서치 캐싱 정책 (확정).**
+
+- 리서치는 **실시간 웹서치**를 유지한다. 사전 구축 corpus(벡터DB) 매칭 방식은 **기각 유지**(2.1·6절, `SPEC.md` 4.3).
+- 단, **동일 `goal_id` 재요청은 캐싱**하여 다시 웹서치하지 않고 이전 `ResearchContext`를 그대로 반환한다. 목표는 스프린트1 동안 갱신 주기 없이 goal_id 단위로 1회 조사 후 재사용한다(리서치 갱신 주기는 이후 스프린트에서 결정).
+- 캐시 키는 `goal_id`. 구현 위치·저장 방식(인메모리/파일/DB)은 기능 3 담당자 재량이며 `SPRINT1_FEATURE3_BP_RESEARCH.md`에 기록한다. `status="failed"` 결과는 캐싱하지 않는다(다음 요청에서 재시도 가능하도록).
 
 ## 3. 전체 흐름
 
@@ -199,6 +253,13 @@ tests/
 | 3번 웹서치 | **Gemini 내장 Google Search grounding** | 별도 검색 API 키 불필요. grounding metadata에서 `source_url` 추출. 사전 구축 corpus 방식 기각(확정) |
 | 4번 생성 | **Gemini structured output** (responseSchema로 JSON 강제) | Stage A·B 모두. fine-tuning은 스프린트1 범위 밖 (2.2절 기각 사유 참고) |
 | 통합 형태 | 같은 repo, 모듈 분리 | 별도 HTTP 서비스 기각 (2.3절) |
+| API 키 (기능 3) | `GEMINI_API_KEY_RESEARCH` | 기능 3(`research/`)이 **자기 키만** 읽는다. 기능 4 키를 참조하지 않는다 |
+| API 키 (기능 4) | `GEMINI_API_KEY_ROADMAP` | 기능 4(`roadmap/`)가 **자기 키만** 읽는다. 기능 3 키를 참조하지 않는다 |
+
+**API 키 정책 (v0.3 확정).**
+
+- Gemini API 키는 **환경변수 2개로 분리**한다: `GEMINI_API_KEY_RESEARCH`(기능 3) / `GEMINI_API_KEY_ROADMAP`(기능 4). 각 모듈은 자기 키만 읽고 서로의 키를 교차 참조하지 않는다(모듈 소유권·과금 추적·rate limit 격리 목적).
+- **키를 코드에 하드코딩하지 않는다.** 키는 환경변수(`.env`)에서만 읽는다. `.env`는 `.gitignore`에 유지하며 커밋하지 않는다. 발급·설정 절차는 `docs/setup/API_KEY_SETUP.md`, 템플릿은 `.env.example` 참고.
 
 세부 구현(프롬프트 설계, 재시도/캐싱, grounding 파라미터 등)은 각자의 FEATURE 문서에서 다룬다 — 이 계약 문서에는 넣지 않는다.
 
@@ -225,4 +286,5 @@ tests/
 
 | 날짜 | 변경 내용 |
 |---|---|
+| 2026-07-13 | v0.3 — ① 리서치 캐싱 정책 확정: 실시간 웹서치 유지(사전 구축 corpus 기각 유지), 단 동일 `goal_id` 재요청은 캐싱해 재검색 안 함(2.4절) ② API 키 분리 정책 추가: `GEMINI_API_KEY_RESEARCH`/`GEMINI_API_KEY_ROADMAP` 환경변수 2개, 각 모듈 자기 키만 읽음, 하드코딩 금지(6절) ③ `OnboardingData` 임시 스키마 추가(1.1절, 기능 1 확정 전·기능 4 담당자 소유) ④ HTTP 오케스트레이션 명시: `POST /roadmap/generate`는 목표 정의서만 받고 내부에서 `run_research()`→`generate_roadmap()` 순차 호출, `ResearchContext` 비노출(2.4절) |
 | 2026-07-11 | v0.2 — 아키텍처 확정: ① 기능 4는 2단계(Stage A 판정·초안 / Stage B 구조화) 설계하되 스프린트1은 둘 다 Gemini, fine-tuning은 범위 밖(교체 슬롯만 유지) ② 같은 repo 모듈 분리(별도 서비스 기각) ③ 3번 웹서치는 Gemini Google Search grounding. ResearchContext에 `status`/`finding_id`/`source_type` 등 추가, RoadmapResult에 `week`/`research_status` 추가, 실패 계약·병렬 작업 프로토콜(7절)·변경 절차(8절) 신설 |
