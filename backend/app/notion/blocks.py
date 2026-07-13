@@ -30,7 +30,7 @@ from app.contracts.research import ResearchContext, ResearchStatus
 from app.contracts.roadmap import RoadmapResult, Task
 from app.notion.guide_parser import render_guide_blocks
 from app.notion.rich_text import (
-    bulleted,
+    bulleted_rich,
     callout,
     checkable,
     columns,
@@ -38,8 +38,10 @@ from app.notion.rich_text import (
     heading2,
     heading3,
     labeled_paragraph,
+    link_text,
     paragraph,
     table_of_contents,
+    text,
 )
 
 _LAYER_ICON = {1: "🟢", 2: "🟡", 3: "🔴"}
@@ -79,12 +81,20 @@ def _stats_text(completed: int, total: int, tasks: list[Task]) -> str:
 
 
 def _resolve_source_refs(task: Task, research: ResearchContext | None) -> list[dict]:
+    """근거를 실제로 클릭해서 확인할 수 있게 source_url을 링크로 건다.
+    ResearchContext 자체(search_queries 등)는 노출하지 않는다 — 인용의 출처는
+    source_url/metric_snippet뿐이라는 계약 §4 규약을 따른다."""
     findings_by_id = {f.finding_id: f for f in research.findings} if research else {}
     entries = []
     for ref in task.source_refs:
         finding = findings_by_id.get(ref)
-        entry = f"{finding.source_title} — {finding.summary}" if finding else f"({ref})"
-        entries.append(bulleted(entry))
+        if finding is None:
+            entries.append(bulleted_rich([text(f"({ref})")]))
+            continue
+        spans = [link_text(finding.source_title, finding.source_url), text(f" — {finding.summary}")]
+        if finding.metric_snippet:
+            spans.append(text(f" ({finding.metric_snippet})"))
+        entries.append(bulleted_rich(spans))
     return entries
 
 

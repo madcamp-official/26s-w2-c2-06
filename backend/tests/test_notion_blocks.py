@@ -71,6 +71,7 @@ def _research() -> ResearchContext:
                 source_type=SourceType.PRACTICE,
                 summary="위키를 자동 갱신한 사례",
                 relevant_method="자동 리프레시",
+                metric_snippet="온보딩 질문 응답 시간 35% 감소",
             )
         ],
     )
@@ -164,6 +165,34 @@ def test_checkbox_children_contain_effect_reassignment_guide_and_sources_but_not
     assert "Copilot 위키 구축 사례" in all_text
     # 지표는 옆 컬럼에 있으므로 체크박스 안에는 없어야 함
     assert "10분 → 2분" not in all_text
+
+
+def test_source_citation_links_to_source_url_and_includes_metric_snippet():
+    roadmap = _roadmap()
+    layout = render_roadmap_page_blocks(_goal(), roadmap, research=_research())
+    checkbox = _get_task_block(layout, roadmap)
+    children = checkbox["to_do"]["children"]
+
+    bullets = [b for b in children if b["type"] == "bulleted_list_item"]
+    assert len(bullets) == 1
+    spans = bullets[0]["bulleted_list_item"]["rich_text"]
+
+    title_span = spans[0]
+    assert title_span["text"]["content"] == "Copilot 위키 구축 사례"
+    assert title_span["text"]["link"]["url"] == "https://example.com/f1"
+
+    full_text = "".join(s["text"]["content"] for s in spans)
+    assert "위키를 자동 갱신한 사례" in full_text
+    assert "온보딩 질문 응답 시간 35% 감소" in full_text
+
+
+def test_source_citation_falls_back_to_bare_ref_when_finding_missing():
+    task = _task(source_refs=["F999"])
+    roadmap = _roadmap(tasks=[task])
+    layout = render_roadmap_page_blocks(_goal(), roadmap, research=_research())
+    checkbox = _get_task_block(layout, roadmap)
+    bullets = [b for b in checkbox["to_do"]["children"] if b["type"] == "bulleted_list_item"]
+    assert "(F999)" in _flat_text(bullets[0])
 
 
 def test_render_adds_warning_callout_when_research_status_not_ok():
