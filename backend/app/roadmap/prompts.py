@@ -125,12 +125,32 @@ def build_stage_b_prompt(draft: DraftPlan, goal: GoalDefinition) -> str:
 ## Stage A 역할 재분배 메모
 {"; ".join(draft.reassignment_notes) or "(없음)"}
 
+## 조직이 실제 쓸 수 있는 도구
+허용 도구: {', '.join(goal.org_constraints.allowed_tools) or '명시 안 됨'}
+
 ## 출력 지시
 1. tasks: 위 task 개요 각각을 difficulty(난이도)/est_time(예상 소요시간)/expected_effect(기대 효과)/
    tools_needed(필요 도구, 조직 제약의 허용 도구 우선 고려)/failure_risk(실패 요인)까지 채운 완전한 task로 확장.
    task_id는 "task_001"부터 순번으로 부여.
-2. role_reassignment_suggestions: 역할 재분배 메모를 task_id와 연결한 제안 카드로 변환.
+2. detailed_guide (제일 중요, 길게 써도 됨): **이 업무를 한 번도 안 해본 사람**이 그대로 따라 할 수 있는
+   단계별 가이드를 작성한다.
+   - **형식을 반드시 지킬 것**: 각 단계는 항상 줄바꿈으로 구분하고, 반드시 아라비아 숫자 + 마침표 +
+     띄어쓰기(`"1. "`, `"2. "`, `"3. "`) 로만 시작한다. "1단계", "Step 1", "첫째" 같은 다른 표현은
+     쓰지 않는다 (뒤에서 이 번호를 기준으로 자동으로 파싱해서 체크리스트로 바꾸기 때문).
+   - tools_needed에 적은 도구가 처음 쓰는 도구라고 가정하고, "어디서 로그인하는지 / 계정·라이선스를
+     어떻게 받는지 / 첫 화면에서 뭘 눌러야 하는지"부터 설명한다. 예:
+     ```
+     1. IT팀에 Copilot 라이선스를 요청한다
+     2. copilot.microsoft.com에 회사 계정으로 로그인한다
+     3. ...
+     ```
+   - AI 도구를 쓰는 단계에는 **그대로 복사해서 붙여넣을 수 있는 예시 프롬프트**를 그 단계 안에서
+     큰따옴표로 감싸서 반드시 포함한다 (예: `4. Copilot 채팅창에 다음과 같이 입력한다: "다음 회의록을
+     참고해서 팀 전체가 이해하기 쉬운 3줄 요약을 만들어줘: {{회의록 내용}}"`)
+   - 전문 용어를 쓰면 그 자리에서 바로 풀어서 설명한다 (SPEC.md 2.1 정책과 동일)
+   - 단계는 최소 4~5개 이상으로 세분화한다. "그냥 Copilot으로 초안 작성" 같은 뭉뚱그린 문장 금지.
+3. role_reassignment_suggestions: 역할 재분배 메모를 task_id와 연결한 제안 카드로 변환.
    disclaimer 필드에는 반드시 "실제 배분은 팀장님이 판단해주세요"를 그대로 적을 것.
-3. metrics: 지표 아이디어를 task_id와 연결해 metric_name/baseline/target으로 구체화.
-4. fitness_assessment: Stage A의 fitness_judgments를 그대로 옮긴다 (내용 변경 금지).
+4. metrics: 지표 아이디어를 task_id와 연결해 metric_name/baseline/target으로 구체화.
+5. fitness_assessment: Stage A의 fitness_judgments를 그대로 옮긴다 (내용 변경 금지).
 """

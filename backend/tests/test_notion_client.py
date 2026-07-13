@@ -30,9 +30,9 @@ def test_create_page_single_batch_only_posts_once(monkeypatch):
     monkeypatch.setattr(notion_client_module.httpx, "patch", fake_patch)
 
     blocks = [{"type": "paragraph", "paragraph": {"rich_text": []}} for _ in range(10)]
-    url = create_page("parent-id", "제목", blocks, _HEADERS)
+    page = create_page("parent-id", "제목", blocks, _HEADERS)
 
-    assert url == "https://notion.so/page123"
+    assert page == {"id": "page123", "url": "https://notion.so/page123"}
     assert len(calls["post"]) == 1
     assert calls["post"][0]["headers"] == _HEADERS
     assert len(calls["post"][0]["json"]["children"]) == 10
