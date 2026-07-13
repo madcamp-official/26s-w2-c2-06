@@ -46,7 +46,8 @@ def main() -> None:
     print(f"findings      : {len(ctx.findings)}건\n")
     for f in ctx.findings:
         metric = f" | metric={f.metric_snippet!r}" if f.metric_snippet else ""
-        print(f"  [{f.finding_id}] ({f.source_type}) {f.source_title}{metric}")
+        stype = getattr(f.source_type, "value", f.source_type)
+        print(f"  [{f.finding_id}] ({stype}) {f.source_title}{metric}")
         print(f"        url   : {f.source_url}")
         print(f"        method: {f.relevant_method}")
         print(f"        summary: {f.summary}\n")
