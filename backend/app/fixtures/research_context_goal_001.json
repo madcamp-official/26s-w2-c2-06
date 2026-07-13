@@ -1,0 +1,42 @@
+{
+  "goal_id": "goal_001",
+  "retrieved_at": "2026-07-11T10:00:00Z",
+  "status": "ok",
+  "search_queries": [
+    "팀 위키 LLM 구축 사례 Copilot",
+    "report automation copilot enterprise ERP",
+    "Microsoft Copilot 온보딩 문서 자동화 실패 요인"
+  ],
+  "findings": [
+    {
+      "finding_id": "F1",
+      "source_title": "Microsoft 365 Copilot으로 팀 지식 위키 구축하기",
+      "source_url": "https://example.com/copilot-team-wiki",
+      "source_type": "practice",
+      "published_date": "2026-04-02",
+      "summary": "한 엔터프라이즈 IT팀이 Copilot과 SharePoint를 연동해 신규 입사자 온보딩 문서를 자동 생성·갱신하는 위키를 구축했다. 기존 문서를 학습 소스로 지정하고 주 1회 자동 리프레시를 돌리는 방식이다.",
+      "relevant_method": "기존 온보딩 문서를 소스로 지정 후 주기적 자동 리프레시하는 위키 구조",
+      "metric_snippet": "신규 입사자 온보딩 질의응답 시간 35% 감소"
+    },
+    {
+      "finding_id": "F2",
+      "source_title": "ERP 연동 환경에서의 보고서 자동화: 사례와 한계",
+      "source_url": "https://example.com/erp-report-automation",
+      "source_type": "research",
+      "published_date": "2026-02-14",
+      "summary": "ERP에 연동된 Copilot이 정형 데이터(매출, 재고 등)는 안정적으로 요약하지만, 비정형 코멘트가 섞인 월간 보고서는 사람의 최종 검수가 여전히 필요하다는 연구 결과.",
+      "relevant_method": "정형 데이터 요약은 자동화, 비정형 코멘트는 사람 검수 병행 (Layer 2 성격)",
+      "metric_snippet": "보고서 초안 작성 시간 평균 45% 절감(검수 시간 제외)"
+    },
+    {
+      "finding_id": "F3",
+      "source_title": "Frontier 개인의 AI 활용법: 주간 보고서를 Copilot 프롬프트 체인으로",
+      "source_url": "https://example.com/frontier-weekly-report-prompt-chain",
+      "source_type": "trend",
+      "published_date": null,
+      "summary": "숙련된 개인 사용자들이 데이터 정리 → 초안 생성 → 톤 다듬기의 3단계 프롬프트 체인을 만들어 반복 사용하는 패턴이 확산되고 있다.",
+      "relevant_method": "단일 프롬프트가 아닌 다단계 프롬프트 체인 설계",
+      "metric_snippet": null
+    }
+  ]
+}

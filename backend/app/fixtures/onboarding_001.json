@@ -1,0 +1,36 @@
+{
+  "team_size": 6,
+  "industry": "제조업 구매팀",
+  "repetitive_tasks": [
+    {
+      "title": "월간 보고서 작성",
+      "frequency": "월 1회 이상",
+      "is_standardized": true,
+      "avg_time_minutes": 180,
+      "contains_sensitive_info": false,
+      "current_method": "ERP에서 데이터 export 후 엑셀·워드로 수기 정리"
+    },
+    {
+      "title": "신규 팀원 온보딩 설명",
+      "frequency": "분기 1회 이하",
+      "is_standardized": false,
+      "avg_time_minutes": 120,
+      "contains_sensitive_info": false,
+      "current_method": "선임이 구두로 설명 + 개인 노트 공유"
+    }
+  ],
+  "member_tags": [
+    {
+      "member_id": "member_a",
+      "strengths": ["데이터 정리", "엑셀"],
+      "ai_comfort_level": "중간",
+      "workload_level": "높음"
+    },
+    {
+      "member_id": "member_b",
+      "strengths": ["신규 입사자 교육"],
+      "ai_comfort_level": "낮음",
+      "workload_level": "중간"
+    }
+  ]
+}
