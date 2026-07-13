@@ -58,6 +58,24 @@
 - Tavily는 `TAVILY_API_KEY` 미설정 상태로 개발 — 호출 없이 빈 리스트를 반환하는 graceful degrade만 검증됨. 실제 trend 결과 스모크는 키 확보 후 재확인 필요(오픈 이슈).
 - 실패 계약은 어댑터가 모두 실패하는 경우로 검증(네트워크 차단/타임아웃 시 `failed`).
 
+### ✅ 기능 3↔4 통합 테스트 (계약 §7-4 DoD)
+
+실제 `run_research(goal_001)` → `generate_roadmap()` 순차 호출을 코드 수정 없이 실행:
+
+- **status=ok 경로**: `run_research(goal_001)` 실 호출(seed 4 + 실시간 4 = findings 8, status=ok) → `generate_roadmap(goal, research, onboarding)`에 그대로 투입 → 유효한 `RoadmapResult` 생성(라운드트립 스키마 검증 통과). 생성된 task가 seed findings(`F1`, `F3`)를 `source_refs`로 실제 인용함 — 3→4 근거 인용 경로가 실제로 동작.
+- **status=failed 경로**: `ResearchContext(status="failed", findings=[])`를 수동 구성해 `generate_roadmap()`에 투입 → 정상적으로 `RoadmapResult` 생성, `research_status`가 `failed`로 정확히 echo되고 모든 task의 `source_refs`가 빈 배열(외부 근거 인용 없음, 계약 §4 "4번은 partial/failed에서도 동작" 요건 충족).
+- **DoD 결론**: 계약 §7-4 통합 완료 기준 충족 — `run_research()` 출력을 `generate_roadmap()`에 코드 수정 없이 넣었을 때 유효한 결과가 나오고, `failed` 경로도 1회 검증됨.
+
+### ⚠️ 발견된 계약 불일치 — HTTP 오케스트레이션 (기능 4 소유 파일, 수정하지 않음)
+
+통합 테스트 중 `app/routers/roadmap.py`(기능 4 소유)가 계약 §2.4와 다르게 구현된 것을 발견했다:
+
+- **계약 §2.4(확정)**: `POST /roadmap/generate`는 목표 정의서만 받고, 내부에서 `run_research()` → `generate_roadmap()`을 순차 호출한다. `ResearchContext`를 요청 바디로 받지 않는다(SPEC 4.3 리서치 레이어 비노출 정책).
+- **실제 구현**: `GenerateRoadmapRequest`가 `research: ResearchContext`를 필수 필드로 요구하고, 핸들러는 `run_research()`를 호출하지 않은 채 요청 바디의 값을 그대로 `generate_roadmap()`에 전달한다(`generate-and-publish`도 동일).
+- **영향**: (1) API 클라이언트가 `ResearchContext`(내부 검색 쿼리·근거 구조)를 직접 조립해서 보내야 함 — 리서치 레이어 비노출 정책 위반. (2) 캐싱(계약 §2.4)이 HTTP 경로에서는 발동하지 않음 — 매 요청 클라이언트가 이미 만든 컨텍스트를 보내므로 `run_research()` 자체가 호출되지 않음.
+- **크래시는 아님**: 라우터는 기계적으로는 정상 동작(TestClient로 200 OK, 유효한 RoadmapResult 확인). 계약 문서와 코드가 어긋난 것이지 오류가 나는 것은 아니다.
+- **조치**: `app/roadmap/`·`app/routers/roadmap.py`는 기능 4 담당자 소유라 임의로 수정하지 않았다(작업 규칙). 계약 §2.4대로 라우터를 고칠지, 아니면 계약을 실제 구현에 맞춰 갱신할지는 기능 4 담당자와 합의 필요 — 8절 절차로 처리해야 함.
+
 ## 5. 오픈 이슈
 
 - ~~리서치 갱신 주기~~ → 계약 v0.3 §2.4 확정: `goal_id` 단위 캐싱, 갱신 주기 자동화는 이후 스프린트
@@ -67,10 +85,13 @@
 - 한글 목표 → 영문 논문/GitHub API 쿼리 키워드 품질(현재 도구·시스템·AX 키워드 조합, LLM 키워드 추출로 승격 가능)
 - seed findings 확장: 현재 goal_001 전용. 다른 goal_id에 대한 seed는 미준비(seed 파일 없으면 자동으로 실시간 조회만 사용 — 정상 동작)
 
+- **`app/routers/roadmap.py`가 계약 §2.4 HTTP 오케스트레이션과 다름** — 위 §4 참고. 기능 4 담당자와 합의 필요(8절 절차)
+
 ## 6. 변경 이력
 
 | 날짜 | 변경 내용 |
 |---|---|
+| 2026-07-13 | 기능3↔4 통합 테스트(계약 §7-4 DoD) 완료 — 실제 `run_research(goal_001)` 출력을 코드 수정 없이 `generate_roadmap()`에 투입, ok/failed 양경로 검증. 통합 중 `app/routers/roadmap.py`가 계약 §2.4(HTTP 오케스트레이션·리서치 비노출)와 다르게 구현된 것을 발견(§4 기록) — 기능 4 소유 파일이라 수정하지 않고 보고만 함 |
 | 2026-07-13 | v0.5 — origin/main(기능 4)과 병합, `contracts/`를 기능 4 소유 버전으로 통일. 소스 어댑터 GitHub·Tavily 추가(Reddit은 상업적 ToS 제약으로 기각). AX 리포트 6건 기반 seed findings 14건 큐레이션(URL 중복 버그 수정, `SEED_LIMIT=4` 도입). 테스트를 `test_research.py`(run_research 동작)와 `test_contracts.py`(공동 스키마, 기능 4 소유)로 분리, 44 tests passed |
 | 2026-07-13 | v0.4 pivot — Gemini grounding 무료 티어 불가(404/429) 확인 → 검색 백엔드를 **다중 소스 실시간 API(Semantic Scholar + arXiv)**로 교체, LLM 요약 옵션화(핵심 경로 LLM 불필요), 큐레이션 seed findings 병합 추가. `gemini_client.py` 제거, `research/sources/`·`seed.py` 신설. 스키마·시그니처 불변 |
 | 2026-07-13 | 기능 3 구현 완료 — `contracts/goal.py`·`research.py`, `fixtures/goal_001.json`·`research_context_goal_001.json`, `research/`(service·query_builder·gemini_client·filters·cache), `tests/test_contracts.py`(20 passed), `scripts/smoke_research.py`. 3절 체크리스트 전부 확정. 실제 API 실패 계약 검증됨, ok 스모크는 계정 쿼터 이슈로 보류(§4) |
