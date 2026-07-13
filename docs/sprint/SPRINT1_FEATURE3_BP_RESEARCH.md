@@ -3,7 +3,7 @@
 > 공통 계약은 `SPRINT1_CONTRACT.md` 참고 (특히 2절 아키텍처 확정, 4절 ResearchContext 스키마, 7절 병렬 작업 프로토콜). 이 문서는 기능 3 담당자가 계약을 확인하고, 세부 구현 계획을 채워나가는 문서다. 스펙 근거는 `SPEC.md` 4.3.
 
 - 최종 수정일: 2026-07-13
-- 상태: 계약 v0.5 반영 (소스 4종: 논문 API + GitHub + Tavily, Reddit 기각. AX 리포트 6건 기반 seed 14건. 기능 4와 병합 통합 완료)
+- 상태: 계약 v0.6 반영 (소스 4종: 논문 API + GitHub + Tavily, Reddit 기각. AX 리포트 6건 기반 seed 14건. 기능 4와 병합 통합 완료. §2.4 HTTP 오케스트레이션 계약 불일치 해소)
 
 ---
 
@@ -66,7 +66,26 @@
 - **status=failed 경로**: `ResearchContext(status="failed", findings=[])`를 수동 구성해 `generate_roadmap()`에 투입 → 정상적으로 `RoadmapResult` 생성, `research_status`가 `failed`로 정확히 echo되고 모든 task의 `source_refs`가 빈 배열(외부 근거 인용 없음, 계약 §4 "4번은 partial/failed에서도 동작" 요건 충족).
 - **DoD 결론**: 계약 §7-4 통합 완료 기준 충족 — `run_research()` 출력을 `generate_roadmap()`에 코드 수정 없이 넣었을 때 유효한 결과가 나오고, `failed` 경로도 1회 검증됨.
 
-### ⚠️ 발견된 계약 불일치 — HTTP 오케스트레이션 (기능 4 소유 파일, 수정하지 않음)
+### ✅ 해결됨 — HTTP 오케스트레이션 계약 불일치 (v0.6, 2026-07-13)
+
+통합 테스트 중 `app/routers/roadmap.py`(기능 4 소유)가 계약 §2.4와 다르게 구현된 것을 발견했었다(과거 기록은 아래 참고). 사용자에게 비용-편익 분석 결과를 보고한 뒤, 사용자 승인 하에 라우터를 계약대로 수정했다.
+
+**비용-편익 분석 요약**
+- **Gemini 토큰 절감**: `generate_roadmap()`엔 캐싱이 없다. `goal_id`만으로 캐싱하면, 클라이언트가 매번 다른 `ResearchContext`를 보낼 수 있는 구조에서는 stale 응답 위험이 있어 안전하게 캐싱할 수 없다. 서버가 `run_research(goal)`을 직접 호출하면 `goal_id → research`가 결정적으로 고정되어, 그 위에 `RoadmapResult` 캐싱을 안전하게 얹을 수 있는 전제가 마련된다(캐싱 자체는 이번엔 미구현, 아래 "오픈 제안" 참고).
+- **수정 범위**: `app/routers/roadmap.py` 한 파일. 스키마(`GoalDefinition`/`OnboardingData`/`RoadmapResult`) 변경 없음.
+- **SPEC 가중치**: SPEC 4.3 "사용자 노출 여부: 없음"은 명시적으로 합의된 정책이며, 기존 구현은 단순 비효율이 아니라 정책 위반이었다.
+- **결론**: 계약대로 라우터를 고치는 쪽으로 결정(계약을 코드에 맞추는 대안은 SPEC 위반을 정당화할 근거가 없어 기각).
+
+**적용된 수정**
+- `app/routers/roadmap.py`: `GenerateRoadmapRequest`에서 `research: ResearchContext` 필드 제거(`goal`+`onboarding`만). `/generate`·`/generate-and-publish` 핸들러가 내부에서 `run_research(payload.goal)`을 호출한 뒤 `generate_roadmap()`/`publish_roadmap()`에 넘긴다.
+- `/publish`(독립 재발행 엔드포인트)도 동일하게 `PublishRoadmapRequest.research` 필드를 제거하고, 요청에 이미 있는 `goal`로 `run_research()`를 호출해 인용용 `ResearchContext`를 재구성한다 — `goal_id` 캐시 덕분에 `/generate`가 먼저 호출된 경우 즉시 캐시 히트.
+- `app/notion/publish.py`의 `publish_roadmap()` 함수 시그니처(기능 4 소유)는 변경하지 않았다. 라우터가 넘기는 인자 값만 클라이언트 입력 대신 서버 계산값으로 바꿨다.
+- `tests/test_roadmap_router.py`: `run_research`를 monkeypatch해 세 엔드포인트 모두 요청 바디에 `research`가 없어도 200 OK + 내부적으로 `run_research()`가 호출됨을 검증하도록 갱신. `generate-and-publish`는 `run_research()`가 정확히 1회만 호출되고 그 결과가 `generate_roadmap()`·`publish_roadmap()` 양쪽에 동일하게 전달됨을 검증하는 테스트를 신규 추가.
+- **재검증**: (1) 함수 레벨 — 실제 `run_research(goal_001)` → `generate_roadmap()` 재실행, ok/failed 경로 및 `goal_id` 캐시 재사용 확인. (2) HTTP 레벨 — `TestClient`로 `/roadmap/generate`에 `goal`+`onboarding`만 전송 → 200 OK + `research/cache.py`의 `goal_id` 캐시에 값이 채워짐을 확인(=`run_research()`가 서버 내부에서 실제로 호출됨). `uv run pytest -q` 63 tests passed.
+- **오픈 제안(미구현)**: `RoadmapResult`를 `goal_id` 단위로 캐싱하면 동일 목표 재요청 시 Gemini 호출(Stage A+B) 자체를 스킵할 수 있다. `app/roadmap/`은 기능 4 소유라 이번엔 라우터 수정만 반영했고, 캐싱 설계(위치·저장 방식)는 기능 4 담당자와 조율 필요 — §8 절차로 제안만 남긴다.
+
+<details>
+<summary>과거 기록 (해결 전, 참고용)</summary>
 
 통합 테스트 중 `app/routers/roadmap.py`(기능 4 소유)가 계약 §2.4와 다르게 구현된 것을 발견했다:
 
@@ -76,6 +95,8 @@
 - **크래시는 아님**: 라우터는 기계적으로는 정상 동작(TestClient로 200 OK, 유효한 RoadmapResult 확인). 계약 문서와 코드가 어긋난 것이지 오류가 나는 것은 아니다.
 - **조치**: `app/roadmap/`·`app/routers/roadmap.py`는 기능 4 담당자 소유라 임의로 수정하지 않았다(작업 규칙). 계약 §2.4대로 라우터를 고칠지, 아니면 계약을 실제 구현에 맞춰 갱신할지는 기능 4 담당자와 합의 필요 — 8절 절차로 처리해야 함.
 
+</details>
+
 ## 5. 오픈 이슈
 
 - ~~리서치 갱신 주기~~ → 계약 v0.3 §2.4 확정: `goal_id` 단위 캐싱, 갱신 주기 자동화는 이후 스프린트
@@ -84,13 +105,14 @@
 - **Tavily 실 스모크 미검증**: `TAVILY_API_KEY` 확보 후 실제 trend 결과가 스키마에 맞게 들어오는지 재확인 필요
 - 한글 목표 → 영문 논문/GitHub API 쿼리 키워드 품질(현재 도구·시스템·AX 키워드 조합, LLM 키워드 추출로 승격 가능)
 - seed findings 확장: 현재 goal_001 전용. 다른 goal_id에 대한 seed는 미준비(seed 파일 없으면 자동으로 실시간 조회만 사용 — 정상 동작)
-
-- **`app/routers/roadmap.py`가 계약 §2.4 HTTP 오케스트레이션과 다름** — 위 §4 참고. 기능 4 담당자와 합의 필요(8절 절차)
+- ~~`app/routers/roadmap.py`가 계약 §2.4 HTTP 오케스트레이션과 다름~~ → v0.6에서 해결(§4 참고)
+- **`RoadmapResult` 캐싱 미구현** (신규, v0.6에서 제안): §4 "오픈 제안" 참고. 기능 4 담당자와 조율 필요(8절 절차)
 
 ## 6. 변경 이력
 
 | 날짜 | 변경 내용 |
 |---|---|
+| 2026-07-13 | 계약 v0.6 — HTTP 오케스트레이션 계약 불일치 해소: `app/routers/roadmap.py`의 `/generate`·`/publish`·`/generate-and-publish`가 `ResearchContext`를 요청 바디로 받던 것을 제거, 서버 내부 `run_research()` 호출로 수정(비용-편익 분석 후 사용자 승인, §4 참고). origin/main(Notion 발행 기능) 병합. `RoadmapResult` 캐싱은 오픈 제안으로 남김. 함수+HTTP 레벨 통합 재검증, 63 tests passed |
 | 2026-07-13 | 기능3↔4 통합 테스트(계약 §7-4 DoD) 완료 — 실제 `run_research(goal_001)` 출력을 코드 수정 없이 `generate_roadmap()`에 투입, ok/failed 양경로 검증. 통합 중 `app/routers/roadmap.py`가 계약 §2.4(HTTP 오케스트레이션·리서치 비노출)와 다르게 구현된 것을 발견(§4 기록) — 기능 4 소유 파일이라 수정하지 않고 보고만 함 |
 | 2026-07-13 | v0.5 — origin/main(기능 4)과 병합, `contracts/`를 기능 4 소유 버전으로 통일. 소스 어댑터 GitHub·Tavily 추가(Reddit은 상업적 ToS 제약으로 기각). AX 리포트 6건 기반 seed findings 14건 큐레이션(URL 중복 버그 수정, `SEED_LIMIT=4` 도입). 테스트를 `test_research.py`(run_research 동작)와 `test_contracts.py`(공동 스키마, 기능 4 소유)로 분리, 44 tests passed |
 | 2026-07-13 | v0.4 pivot — Gemini grounding 무료 티어 불가(404/429) 확인 → 검색 백엔드를 **다중 소스 실시간 API(Semantic Scholar + arXiv)**로 교체, LLM 요약 옵션화(핵심 경로 LLM 불필요), 큐레이션 seed findings 병합 추가. `gemini_client.py` 제거, `research/sources/`·`seed.py` 신설. 스키마·시그니처 불변 |

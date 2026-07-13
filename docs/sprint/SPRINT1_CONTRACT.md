@@ -3,7 +3,7 @@
 > `SPEC.md` 4.3(BP 리서치 엔진)·4.4(맞춤 로드맵 + 평가 지표 생성)를 구현하기 위한 공통 기술 계약. 두 기능 담당자 모두 이 문서를 기준으로 작업하고, 각자의 세부 구현은 `SPRINT1_FEATURE3_BP_RESEARCH.md` / `SPRINT1_FEATURE4_ROADMAP_GENERATOR.md`에 기록한다. **이 계약이 바뀌면 두 담당자 모두에게 공유하고 이 문서를 갱신한다.**
 
 - 최종 수정일: 2026-07-13
-- 상태: v0.5 (기능 3 소스 확장 — GitHub Search·Tavily 채택, Reddit 기각(ToS). AX 리포트 6건 기반 큐레이션 seed 14건 반영, seed 소수 원칙을 SEED_LIMIT=4로 코드화. 기능 4와 병합 통합(origin/main). 스키마·시그니처 불변. 담당자는 확정 사항에 이견 시 8절 변경 절차로 제기)
+- 상태: v0.6 (§2.4 HTTP 오케스트레이션 불일치 해소 — `app/routers/roadmap.py`를 계약대로 수정. Notion 발행(`/publish`, `/generate-and-publish`) 관련 origin/main 병합 반영. 스키마·시그니처 불변)
 
 ---
 
@@ -121,14 +121,17 @@ tests/
   test_contracts.py   # 양쪽 출력의 스키마 검증 (공동)
 ```
 
-### 2.4 HTTP 오케스트레이션 & 리서치 캐싱 (v0.3에서 결정)
+### 2.4 HTTP 오케스트레이션 & 리서치 캐싱 (v0.3에서 결정, v0.6에서 구현 정합성 확인)
 
 **HTTP 오케스트레이션 — 리서치 레이어는 API에 비노출.**
 
-- `POST /roadmap/generate`는 **목표 정의서(`GoalDefinition`)만** 요청 바디로 받는다. `ResearchContext`를 요청 바디로 받지 않는다.
+- `POST /roadmap/generate`는 **목표 정의서(`GoalDefinition`)와 `OnboardingData`만** 요청 바디로 받는다. `ResearchContext`를 요청 바디로 받지 않는다.
 - 엔드포인트 핸들러가 내부에서 `run_research(goal)` → `generate_roadmap(goal, research, onboarding, ...)`를 **순차 호출**한다. 즉 리서치는 서버 내부 단계이며 클라이언트는 그 존재를 모른다.
+- 이 원칙은 `/generate`뿐 아니라 **`/roadmap/publish`·`/roadmap/generate-and-publish`에도 동일하게 적용**한다(v0.6에서 명확화). `/publish`는 이미 생성된 `RoadmapResult`를 Notion에 재발행하는 엔드포인트이지만, 요청 바디에 `goal`(따라서 `goal_id`)이 이미 있으므로 여기서도 클라이언트가 `ResearchContext`를 직접 보내는 대신 서버가 `run_research(goal)`을 내부 호출해 인용용 컨텍스트를 재구성한다. §2.4 캐싱 덕분에 같은 `goal_id`로 이미 `/generate`가 호출된 적 있으면 즉시 캐시 히트라 추가 비용이 거의 없다.
 - 근거: `SPEC.md` 4.3 — BP 리서치 엔진은 사용자에게 노출되지 않는 백엔드 리서치 레이어다. 리서치 결과를 외부로 노출/입력받는 경로를 만들지 않는다.
 - 함수 시그니처(2.3절)는 그대로다. 이 절은 그 두 함수를 **HTTP 레벨에서 누가 엮는가**만 고정한다. 엔드포인트/오케스트레이션 코드는 `roadmap/`(또는 `routers/`) 소유이며, 기능 3은 `run_research()`만 제공한다.
+- **v0.6 구현 완료**: 실제로는 `app/routers/roadmap.py`가 이 절과 어긋나게 구현되어(`GenerateRoadmapRequest`/`PublishRoadmapRequest`가 `ResearchContext`를 필수/옵션 필드로 요구하고 `run_research()`를 호출하지 않음) `SPRINT1_FEATURE3_BP_RESEARCH.md` §4에 "계약 불일치"로 기록되어 있었다. 비용-편익 분석(캐싱 신뢰성·수정 범위·SPEC 4.3 가중치, 상세는 FEATURE3 §4 참고) 후 라우터를 이 절대로 수정했다. 라우터는 기능 4 소유 파일이지만, 이번 수정은 사용자가 명시적으로 위임한 예외 조치다. 통합테스트(함수 레벨 + HTTP 레벨)로 재검증 완료 — `SPRINT1_FEATURE3_BP_RESEARCH.md` §4 참고.
+- **오픈 제안 (미구현)**: `RoadmapResult` 자체를 `goal_id` 단위로 캐싱하면 동일 목표 재요청 시 Gemini 호출(Stage A+B, ~55~60초)까지 스킵할 수 있다. 이 캐싱은 `app/roadmap/`(기능 4 소유) 안에 둘지, 기능 3의 `research/cache.py`와 같은 패턴으로 별도 모듈을 둘지 기능 4 담당자와 조율이 필요하다 — 이번엔 라우터 수정만 반영하고 캐싱 자체는 제안으로 남긴다.
 
 **리서치 캐싱 정책 (확정).**
 
@@ -320,6 +323,7 @@ tests/
 
 | 날짜 | 변경 내용 |
 |---|---|
+| 2026-07-13 | v0.6 — §2.4 HTTP 오케스트레이션 계약 불일치 해소: `app/routers/roadmap.py`의 `/generate`·`/publish`·`/generate-and-publish`가 `ResearchContext`를 요청 바디로 받던 것을 제거하고, 서버 내부에서 `run_research(goal)`을 호출하도록 수정(§2.4에 `/publish` 적용 범위 명확화 추가). 기능 4 소유 파일이지만 사용자가 비용-편익 분석 후 위임한 예외 조치. `RoadmapResult` 캐싱은 오픈 제안으로 남김(§2.4). origin/main(Notion 발행 기능) 병합 포함. 통합테스트(함수+HTTP 레벨) 재검증 완료, 63 tests passed |
 | 2026-07-13 | v0.5 — ① **기능 4(origin/main)와 병합**: 기능 4 담당자가 독립적으로 만든 `contracts/goal.py`·`research.py`(str Enum 사용)를 채택(add/add 충돌을 기능 4 쪽으로 해소, 필드는 동일), `contracts/__init__.py`는 기능 3의 re-export 버전 유지, `core/config.py`는 기능 4의 단일 `GEMINI_API_KEY` 채택(리서치가 Gemini 불필요해졌으므로 §6의 "키 기능별 분리"는 폐기), `tests/test_contracts.py`는 기능 4의 공동 스키마 테스트를 유지하고 기능 3의 `run_research()` 동작 테스트는 `tests/test_research.py`로 분리. 병합 후 44개 테스트 전부 통과 확인 ② **소스 확장**(§2.7): GitHub Search·Tavily 채택, Reddit은 상업적 이용 ToS 제약으로 기각 ③ **seed 소수 원칙 코드화**(§2.6): `SEED_LIMIT=4` 도입 ④ AX 리포트 6건 기반 seed 14건 큐레이션(§2.8), seed 간 URL 중복으로 일부가 조용히 드롭되던 버그를 fragment URL로 수정 |
 | 2026-07-13 | v0.4 — 기능 3 검색 백엔드 변경(§8 절차): Gemini Google Search grounding이 무료 API 티어에서 사용 불가(404/429, grounding 유료 게이팅)로 확인 → **다중 소스 실시간 API**로 교체(스프린트1: Semantic Scholar + arXiv). SPEC 정책(실시간 유지·사전 corpus 기각)은 불변, 도구만 변경(§2.5, §6). LLM(Gemini) 요약을 **옵션화**(핵심 경로는 LLM 없이 동작, `GEMINI_API_KEY_RESEARCH` 옵션). **큐레이션 seed findings 병합** 정책 추가(§2.6). `run_research` 시그니처·`ResearchContext`/`Finding` 스키마 불변 |
 | 2026-07-13 | v0.3 — ① 리서치 캐싱 정책 확정: 실시간 웹서치 유지(사전 구축 corpus 기각 유지), 단 동일 `goal_id` 재요청은 캐싱해 재검색 안 함(2.4절) ② API 키 분리 정책 추가: `GEMINI_API_KEY_RESEARCH`/`GEMINI_API_KEY_ROADMAP` 환경변수 2개, 각 모듈 자기 키만 읽음, 하드코딩 금지(6절) ③ `OnboardingData` 임시 스키마 추가(1.1절, 기능 1 확정 전·기능 4 담당자 소유) ④ HTTP 오케스트레이션 명시: `POST /roadmap/generate`는 목표 정의서만 받고 내부에서 `run_research()`→`generate_roadmap()` 순차 호출, `ResearchContext` 비노출(2.4절) |
