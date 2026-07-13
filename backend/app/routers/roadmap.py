@@ -5,6 +5,7 @@ from app.contracts.goal import GoalDefinition
 from app.contracts.onboarding import OnboardingData
 from app.contracts.research import ResearchContext
 from app.contracts.roadmap import RoadmapResult
+from app.notion.progress import refresh_progress
 from app.notion.publish import publish_roadmap
 from app.roadmap import generate_roadmap
 
@@ -20,6 +21,7 @@ class GenerateRoadmapRequest(BaseModel):
 class PublishRoadmapRequest(BaseModel):
     goal: GoalDefinition
     roadmap: RoadmapResult
+    research: ResearchContext | None = None
     account_id: str = "default"
     parent_page_id: str | None = None
 
@@ -30,6 +32,13 @@ class GenerateAndPublishRequest(GenerateRoadmapRequest):
 
 class PublishRoadmapResponse(BaseModel):
     notion_url: str
+    page_id: str
+
+
+class RefreshProgressResponse(BaseModel):
+    completed: int
+    total: int
+    completed_task_titles: list[str]
 
 
 @router.post("/generate", response_model=RoadmapResult)
@@ -39,12 +48,21 @@ def generate(payload: GenerateRoadmapRequest) -> RoadmapResult:
 
 @router.post("/publish", response_model=PublishRoadmapResponse)
 def publish(payload: PublishRoadmapRequest) -> PublishRoadmapResponse:
-    url = publish_roadmap(payload.goal, payload.roadmap, payload.account_id, payload.parent_page_id)
-    return PublishRoadmapResponse(notion_url=url)
+    result = publish_roadmap(
+        payload.goal, payload.roadmap, payload.account_id, payload.research, payload.parent_page_id
+    )
+    return PublishRoadmapResponse(notion_url=result["url"], page_id=result["page_id"])
 
 
 @router.post("/generate-and-publish", response_model=PublishRoadmapResponse)
 def generate_and_publish(payload: GenerateAndPublishRequest) -> PublishRoadmapResponse:
     roadmap = generate_roadmap(payload.goal, payload.research, payload.onboarding)
-    url = publish_roadmap(payload.goal, roadmap, payload.account_id)
-    return PublishRoadmapResponse(notion_url=url)
+    result = publish_roadmap(payload.goal, roadmap, payload.account_id, payload.research)
+    return PublishRoadmapResponse(notion_url=result["url"], page_id=result["page_id"])
+
+
+@router.post("/{page_id}/refresh-progress", response_model=RefreshProgressResponse)
+def refresh(page_id: str) -> RefreshProgressResponse:
+    """Notion에서 체크박스 상태를 다시 읽어와 페이지 안의 진행 현황 요약을 갱신한다 (수동 호출)."""
+    result = refresh_progress(page_id)
+    return RefreshProgressResponse(**result)
