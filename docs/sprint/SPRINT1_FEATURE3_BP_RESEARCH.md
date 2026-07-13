@@ -3,7 +3,7 @@
 > 공통 계약은 `SPRINT1_CONTRACT.md` 참고 (특히 2절 아키텍처 확정, 4절 ResearchContext 스키마, 7절 병렬 작업 프로토콜). 이 문서는 기능 3 담당자가 계약을 확인하고, 세부 구현 계획을 채워나가는 문서다. 스펙 근거는 `SPEC.md` 4.3.
 
 - 최종 수정일: 2026-07-13
-- 상태: 계약 v0.4 반영 (검색 백엔드 = 다중 소스 실시간 API(논문 API), LLM 옵션화, seed 병합. 구현 완료)
+- 상태: 계약 v0.5 반영 (소스 4종: 논문 API + GitHub + Tavily, Reddit 기각. AX 리포트 6건 기반 seed 14건. 기능 4와 병합 통합 완료)
 
 ---
 
@@ -40,32 +40,38 @@
 |---|---|
 | `app/research/service.py` | `run_research()` 진입점. 캐시조회→쿼리빌드→소스 어댑터 실시간 조회→seed 병합→필터·중복제거→status판정→캐시저장. **실패 계약**(예외 미전파, failed+빈 findings)을 여기서 보장 |
 | `app/research/query_builder.py` | `goal_text`+`org_constraints`로 검색 쿼리 2~4개 생성(도구·연동 시스템 + AX 키워드). 추후 LLM 키워드 추출로 승격 가능 |
-| `app/research/sources/` | 소스 어댑터. `semantic_scholar.py`·`arxiv.py` — 요청 시점 실시간 HTTP 조회로 논문 title/abstract/url/연도 수집(키 불필요). 어댑터별 예외는 상위에서 흡수 |
-| `app/research/seed.py` | 큐레이션 seed findings 로더(`fixtures/seed_findings_*.json`). 실시간 결과와 같은 스키마로 병합 (계약 §2.6) |
+| `app/research/sources/` | 소스 어댑터 4종(§2.7). `semantic_scholar.py`·`arxiv.py`(논문, 키불필요) · `github.py`(practice, 키불필요·토큰있으면상향) · `tavily.py`(trend, 키 옵션·없으면 조용히 생략). 어댑터별 예외는 상위에서 흡수 |
+| `app/research/seed.py` | 큐레이션 seed findings 로더(`fixtures/seed_findings_*.json`). 실시간 결과와 같은 스키마로 병합, `service.SEED_LIMIT`(=4)만큼만 요청당 사용 (계약 §2.6, §2.8) |
 | `app/research/filters.py` | 소스 신뢰도 필터(http url) + metric 수치 검증(`sanitize_metric`) + abstract 요약 트림 |
 | `app/research/cache.py` | `goal_id → ResearchContext` 인메모리 캐시 (계약 §2.4) |
 
 - **LLM 불필요**: 소스 API가 구조화 데이터를 주므로 핵심 경로에 Gemini 호출이 없다 → 무료 티어 쿼터 문제와 무관. (Gemini grounding 기반 이전 구현은 v0.4에서 제거)
 - **요약**: `summary`는 abstract를 2~3문장으로 트림(스프린트1). "원문 그대로 X"(SPEC 4.3) 완전 충족은 LLM 요약이 필요 → 정상 키 확보 시 옵션으로 추가(오픈 이슈).
 - **published_date**: 이제 API가 발행연도를 주므로 채워진다(이전 grounding에선 null).
-- **테스트**: `tests/test_contracts.py` — 스키마 검증 + `failed` 경로 + 캐싱 + seed 병합 + 중복제거. 네트워크 미사용(소스 어댑터 monkeypatch). 실제 API 스모크는 `scripts/smoke_research.py`(수동, **무료 API라 상시 실행 가능**).
+- **테스트**: `tests/test_research.py` — `run_research()` 동작(스키마·failed·캐싱·seed 병합·중복제거) 전담. 네트워크 미사용(소스 어댑터 4종 전부 monkeypatch). `tests/test_contracts.py`(기능 4 소유)는 공동 스키마/픽스처 검증만 담당 — origin/main 병합 후 역할 분리. 실제 API 스모크는 `scripts/smoke_research.py`(수동, **무료 API라 상시 실행 가능**).
+- **seed 소스**: 사용자가 제공한 AX 리포트 6건(뤼튼·SK-AX×3·원티드·kt cloud)을 서브에이전트가 SPEC 기획 의도에 맞춰 분석해 `fixtures/seed_findings_goal_001.json`에 14건으로 큐레이션(§2.8). 요청당 `SEED_LIMIT=4`건만 병합되고 나머지는 실시간 조회로 채워진다.
 
 ### ✅ 스모크 테스트 상태
 
-- **v0.4 전환 후 실제 API 스모크 통과 대상**: Semantic Scholar/arXiv는 무료·키불필요라 `run_research(goal_001)`을 실제로 호출해 `ok`/`partial` 결과를 받을 수 있다. (이전 Gemini grounding 구현은 무료 키에서 404/429로 성공 스모크가 막혔었음 — 그 문제가 이번 전환으로 해소)
+- **v0.4 전환 후 실제 API 스모크 통과**: Semantic Scholar/arXiv/GitHub는 무료·키불필요라 `run_research(goal_001)`을 실제로 호출해 `ok` 결과를 받을 수 있다. (이전 Gemini grounding 구현은 무료 키에서 404/429로 성공 스모크가 막혔었음 — 이번 전환으로 해소)
+- GitHub Search 실 호출 검증: goal_001 관련 쿼리(`Copilot enterprise adoption` 등)에서 목표와 직접 연관된 저장소가 실제로 조회됨(예: Copilot 프롬프트 라이브러리).
+- Tavily는 `TAVILY_API_KEY` 미설정 상태로 개발 — 호출 없이 빈 리스트를 반환하는 graceful degrade만 검증됨. 실제 trend 결과 스모크는 키 확보 후 재확인 필요(오픈 이슈).
 - 실패 계약은 어댑터가 모두 실패하는 경우로 검증(네트워크 차단/타임아웃 시 `failed`).
 
 ## 5. 오픈 이슈
 
 - ~~리서치 갱신 주기~~ → 계약 v0.3 §2.4 확정: `goal_id` 단위 캐싱, 갱신 주기 자동화는 이후 스프린트
 - LLM 요약 품질(현재 abstract 트림) — 정상 Gemini 키/유료 티어 확보 시 요약 단계 옵션 추가
-- 소스 확장: GitHub(`practice`)·범용 검색(`trend`) 어댑터 추가(계약 §2.5 이후 확장)
-- 한글 목표 → 영문 논문 API 쿼리 키워드 품질(현재 도구·시스템·AX 키워드 조합, LLM 키워드 추출로 승격 가능)
+- ~~소스 확장: GitHub·범용 검색 어댑터 추가~~ → v0.5에서 GitHub·Tavily 채택 완료(§2.7). Reddit은 상업적 이용 ToS 제약으로 기각(확정, 유료 계약 없이는 재검토 안 함)
+- **Tavily 실 스모크 미검증**: `TAVILY_API_KEY` 확보 후 실제 trend 결과가 스키마에 맞게 들어오는지 재확인 필요
+- 한글 목표 → 영문 논문/GitHub API 쿼리 키워드 품질(현재 도구·시스템·AX 키워드 조합, LLM 키워드 추출로 승격 가능)
+- seed findings 확장: 현재 goal_001 전용. 다른 goal_id에 대한 seed는 미준비(seed 파일 없으면 자동으로 실시간 조회만 사용 — 정상 동작)
 
 ## 6. 변경 이력
 
 | 날짜 | 변경 내용 |
 |---|---|
+| 2026-07-13 | v0.5 — origin/main(기능 4)과 병합, `contracts/`를 기능 4 소유 버전으로 통일. 소스 어댑터 GitHub·Tavily 추가(Reddit은 상업적 ToS 제약으로 기각). AX 리포트 6건 기반 seed findings 14건 큐레이션(URL 중복 버그 수정, `SEED_LIMIT=4` 도입). 테스트를 `test_research.py`(run_research 동작)와 `test_contracts.py`(공동 스키마, 기능 4 소유)로 분리, 44 tests passed |
 | 2026-07-13 | v0.4 pivot — Gemini grounding 무료 티어 불가(404/429) 확인 → 검색 백엔드를 **다중 소스 실시간 API(Semantic Scholar + arXiv)**로 교체, LLM 요약 옵션화(핵심 경로 LLM 불필요), 큐레이션 seed findings 병합 추가. `gemini_client.py` 제거, `research/sources/`·`seed.py` 신설. 스키마·시그니처 불변 |
 | 2026-07-13 | 기능 3 구현 완료 — `contracts/goal.py`·`research.py`, `fixtures/goal_001.json`·`research_context_goal_001.json`, `research/`(service·query_builder·gemini_client·filters·cache), `tests/test_contracts.py`(20 passed), `scripts/smoke_research.py`. 3절 체크리스트 전부 확정. 실제 API 실패 계약 검증됨, ok 스모크는 계정 쿼터 이슈로 보류(§4) |
 | 2026-07-13 | 계약 v0.3 반영 — 리서치 캐싱 정책 확정(실시간 웹서치 + `goal_id` 단위 캐싱, `status="failed"` 미캐싱). 3절 캐싱 체크리스트 확정 처리, 5절 오픈 이슈에서 갱신 주기 이슈 종료 |

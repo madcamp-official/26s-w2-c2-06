@@ -20,16 +20,18 @@ from app.research import cache
 from app.research.filters import first_sentence, passes_url, sanitize_metric, trim_summary
 from app.research.query_builder import build_search_queries
 from app.research.seed import load_seed_findings
-from app.research.sources import arxiv, semantic_scholar
+from app.research.sources import arxiv, github, semantic_scholar, tavily
 
 logger = logging.getLogger(__name__)
 
 # 실시간 소스 어댑터 (각각 search(query, limit) -> list[RawSource])
-ADAPTERS = [semantic_scholar, arxiv]
+# 순서 = 우선순위. tavily는 TAVILY_API_KEY 없으면 자체적으로 빈 리스트 반환(호출 생략)하며 조용히 빠진다.
+ADAPTERS = [semantic_scholar, arxiv, github, tavily]
 
 MAX_FINDINGS = 8  # 계약 §4: 목표 3~8건
 OK_THRESHOLD = 3  # 3건 이상 ok, 1~2건 partial, 0건 failed
 PER_QUERY_LIMIT = 4
+SEED_LIMIT = 4  # 계약 §2.6: seed는 "소수"로 제한 — 실시간 조회가 주 메커니즘으로 남도록 상한
 
 
 def _now() -> datetime:
@@ -86,13 +88,18 @@ def run_research(goal: GoalDefinition) -> ResearchContext:
             )
             return len(collected) < MAX_FINDINGS
 
-        # 1) 큐레이션 seed findings (계약 §2.6) — 실시간 결과보다 앞에 병합
+        # 1) 큐레이션 seed findings (계약 §2.6) — 실시간 결과보다 앞에 병합.
+        #    seed는 "소수"로 제한(SEED_LIMIT) — 파일에 더 있어도 실시간 조회가 주 메커니즘으로 남도록 상한을 둔다.
+        seed_used = 0
         for sd in load_seed_findings(goal_id):
+            if seed_used >= SEED_LIMIT:
+                break
             url = (sd.get("source_url") or "").strip()
             title = (sd.get("source_title") or "").strip()
             summary = (sd.get("summary") or "").strip()
             if not (url and title and summary):
                 continue  # 불완전 seed는 건너뜀 (실패 계약: 예외 없이 skip)
+            seed_used += 1
             if not _add(
                 title=title,
                 url=url,

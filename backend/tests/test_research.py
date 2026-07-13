@@ -1,7 +1,7 @@
 """기능 3 `run_research()` 동작 검증 (계약 §7-3, §4 실패 계약, v0.4 소스 API 아키텍처).
 
 출력 스키마 + 실패 경로 + 캐싱 + seed 병합 + url필터/중복제거.
-네트워크를 타지 않도록 소스 어댑터(`semantic_scholar.search`/`arxiv.search`)를 monkeypatch한다.
+네트워크를 타지 않도록 소스 어댑터(semantic_scholar/arxiv/github의 `search`)를 monkeypatch한다.
 (공동 소유 스키마/픽스처 검증은 test_contracts.py, 실제 API 스모크는 scripts/smoke_research.py.)
 """
 
@@ -15,7 +15,8 @@ import pytest
 from app.contracts.goal import GoalDefinition, OrgConstraints
 from app.contracts.research import Finding, ResearchContext
 from app.research import cache, run_research
-from app.research.sources import arxiv, semantic_scholar
+from app.research.service import SEED_LIMIT
+from app.research.sources import arxiv, github, semantic_scholar, tavily
 from app.research.sources.base import RawSource
 
 FIXTURES = Path(__file__).resolve().parent.parent / "app" / "fixtures"
@@ -46,7 +47,7 @@ def _paper(url: str, title: str = "T", abstract: str | None = "A. B. C.") -> Raw
     return RawSource(title=title, url=url, abstract=abstract, source_type="research", published_date="2025")
 
 
-def _install_sources(monkeypatch, *, ss=None, arx=None):
+def _install_sources(monkeypatch, *, ss=None, arx=None, gh=None, tv=None):
     """어댑터 search를 결정적 가짜로 교체. 호출 횟수를 센다. 값이 Exception이면 raise."""
     calls = {"n": 0}
 
@@ -60,6 +61,8 @@ def _install_sources(monkeypatch, *, ss=None, arx=None):
 
     monkeypatch.setattr(semantic_scholar, "search", make(ss if ss is not None else []))
     monkeypatch.setattr(arxiv, "search", make(arx if arx is not None else []))
+    monkeypatch.setattr(github, "search", make(gh if gh is not None else []))
+    monkeypatch.setattr(tavily, "search", make(tv if tv is not None else []))
     return calls
 
 
@@ -92,17 +95,22 @@ def test_partial_when_few(monkeypatch):
 
 def test_seed_findings_merged_first(monkeypatch):
     _install_sources(monkeypatch, ss=[_paper("https://a/x")])
-    ctx = run_research(_goal_001())  # seed 2 + 실시간 1 = 3
+    ctx = run_research(_goal_001())  # seed(SEED_LIMIT건, 실제 파일엔 더 많음) + 실시간 1
     assert ctx.status == "ok"
-    assert ctx.findings[0].source_url.startswith("internal://")  # seed 먼저
-    assert ctx.findings[-1].source_url.startswith("http")  # 실시간 뒤
-    assert any(f.metric_snippet and "45%" in f.metric_snippet for f in ctx.findings)
+    assert len(ctx.findings) == SEED_LIMIT + 1
+    seed_part, live_part = ctx.findings[:SEED_LIMIT], ctx.findings[SEED_LIMIT:]
+    assert all(f.source_url.startswith("internal://") for f in seed_part)  # seed 먼저
+    assert all(f.source_url.startswith("http") for f in live_part)  # 실시간 뒤
+    # seed 파일에 실제 리포트에서 뽑은 수치 근거가 여럿 있어야 함 (SPEC 2.6 출처 있는 인용)
+    data = json.loads((FIXTURES / "seed_findings_goal_001.json").read_text())
+    assert any(sd.get("metric_snippet") for sd in data)
 
 
-def test_seed_only_is_partial(monkeypatch):
-    _install_sources(monkeypatch, ss=[], arx=[])
+def test_seed_only_is_ok_when_reaches_threshold(monkeypatch):
+    _install_sources(monkeypatch, ss=[], arx=[])  # 실시간 전부 무결과
     ctx = run_research(_goal_001())
-    assert ctx.status == "partial" and len(ctx.findings) == 2
+    # SEED_LIMIT(4) >= OK_THRESHOLD(3) 이므로 seed만으로도 ok
+    assert ctx.status == "ok" and len(ctx.findings) == SEED_LIMIT
 
 
 # ── 실패 계약 ─────────────────────────────────────────────────

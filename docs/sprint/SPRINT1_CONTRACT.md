@@ -3,7 +3,7 @@
 > `SPEC.md` 4.3(BP 리서치 엔진)·4.4(맞춤 로드맵 + 평가 지표 생성)를 구현하기 위한 공통 기술 계약. 두 기능 담당자 모두 이 문서를 기준으로 작업하고, 각자의 세부 구현은 `SPRINT1_FEATURE3_BP_RESEARCH.md` / `SPRINT1_FEATURE4_ROADMAP_GENERATOR.md`에 기록한다. **이 계약이 바뀌면 두 담당자 모두에게 공유하고 이 문서를 갱신한다.**
 
 - 최종 수정일: 2026-07-13
-- 상태: v0.4 (기능 3 검색 백엔드 변경 — Gemini grounding 무료 티어 불가 확인 → 다중 소스 실시간 API(논문 API 우선). LLM 의존 옵션화, 큐레이션 seed findings 병합 정책 추가. 스키마·시그니처 불변. 담당자는 확정 사항에 이견 시 8절 변경 절차로 제기)
+- 상태: v0.5 (기능 3 소스 확장 — GitHub Search·Tavily 채택, Reddit 기각(ToS). AX 리포트 6건 기반 큐레이션 seed 14건 반영, seed 소수 원칙을 SEED_LIMIT=4로 코드화. 기능 4와 병합 통합(origin/main). 스키마·시그니처 불변. 담당자는 확정 사항에 이견 시 8절 변경 절차로 제기)
 
 ---
 
@@ -150,9 +150,24 @@ tests/
 ### 2.6 큐레이션 seed findings 병합 (v0.4에서 결정)
 
 - 웹/논문 검색에 나오지 않는 **사람이 큐레이션한 소수의 근거**(예: 메일로 받은 사내 리포트)를 `Finding`으로 정리해 `ResearchContext.findings`에 **실시간 결과와 같은 스키마로 병합**할 수 있다.
-- **주 메커니즘은 실시간 조회**이며, seed는 보조다(별도 wiki/corpus-매칭 시스템을 만들지 않는다 — SPEC 4.3 corpus 기각 유지). seed는 소수로 제한한다.
-- seed도 `source_url`(출처)을 갖는다(SPEC 2.6 "출처 있는 경우만 인용"). 사내 문서라 공개 URL이 없으면 내부 식별자를 넣되, 기능 4가 사용자에게 그대로 노출하지 않도록 주의(리서치 레이어 비노출 — SPEC 4.3).
+- **주 메커니즘은 실시간 조회**이며, seed는 보조다(별도 wiki/corpus-매칭 시스템을 만들지 않는다 — SPEC 4.3 corpus 기각 유지). seed는 소수로 제한한다 — **코드로 강제**: `service.SEED_LIMIT`(현재 4)만큼만 요청당 병합하고 나머지는 실시간 조회로 채운다. seed 저장 파일 자체는 그보다 많은 후보를 담아도 된다(v0.5 §2.8 참고).
+- seed도 `source_url`(출처)을 갖는다(SPEC 2.6 "출처 있는 경우만 인용"). 사내 문서라 공개 URL이 없으면 내부 식별자를 넣되, 기능 4가 사용자에게 그대로 노출하지 않도록 주의(리서치 레이어 비노출 — SPEC 4.3). **동일 문서에서 여러 findings를 뽑을 때는 `internal://.../doc-id#section-slug`처럼 fragment로 구분해 URL을 고유하게 만든다** — service의 URL 기준 중복 제거 로직이 같은 URL을 가진 findings를 하나로 합쳐버리기 때문.
 - 저장 위치/형식은 기능 3 담당자 재량(예: `fixtures/seed_findings_*.json`).
+
+### 2.8 AX 리포트 6건 기반 seed 큐레이션 (v0.5에서 실행)
+
+- 사용자가 제공한 AX 리포트 6건(뤼튼 AX Report, SK-AX MI리포트 3건, 원티드 AX 인사이트, kt cloud 트렌드 리포트)을 서브에이전트가 SPEC.md 기획 의도에 맞춰 분석해 `fixtures/seed_findings_goal_001.json`에 **14건**으로 큐레이션했다(§2.6 SEED_LIMIT=4 적용으로 요청당 최대 4건만 실제 병합).
+- 선정 기준: goal_001(Copilot·ERP·LLM위키·보고서자동화·고보안) 직결 사례 우선 + AI 적합성 판정(4.4)·Layer 차등 효과·작게 시작(2.5)·AI 만능주의 경계(2.3) 등 정책 실증 근거. 출처가 불명확한 사내/유료 리포트라 전부 `internal://` 식별자 사용(공개 URL 지어내지 않음, §2.6 규약 준수).
+- 뤼튼 AX Report는 리포트 자체에 "Strictly Confidential" 표기가 있어 특히 공개 URL 대체 불가 확인.
+
+### 2.7 소스 확장 — GitHub·Tavily 채택, Reddit 기각 (v0.5에서 결정)
+
+> §2.5에서 예고한 "이후 확장(옵션)"을 스프린트1 내에 실행. 스키마·시그니처 불변.
+
+- **GitHub Search API 채택** (`source_type="practice"`, frontier 개인·현장 도구/프롬프트 활용법). 무료·키 불필요(검색 엔드포인트 비인증 10회/분, `GITHUB_TOKEN` 있으면 30회/분). 실 호출로 검증 완료 — goal_001 관련 쿼리에서 목표와 직접 연관된 저장소가 실제로 조회됨.
+- **Tavily 채택** (`source_type="trend"`, AX 트렌드·블로그). 월 1,000 크레딧 무료(카드 불필요), `TAVILY_API_KEY` 필요. **키 미설정 시 해당 소스만 조용히 생략**(호출 자체를 안 함, 다른 소스로 degrade) — 나머지 소스는 정상 동작. `goal_id` 캐싱(§2.4)으로 크레딧 절약.
+- **Reddit 기각(확정)**: Reddit Data API 무료 티어는 **비상업적 이용으로 명시적으로 제한**되며, 상업적 이용은 별도 유료 계약(연 기본 $12,000선)과 수동 승인이 필요하다. AI Champion은 실제 서비스(상업적 의도)이므로 무료 티어로 Reddit 데이터를 가져오는 것은 ToS 위반 리스크가 있다. 유료 계약 없이는 채택하지 않는다. 필요성이 커지면 유료 계약 여부를 사용자와 별도로 결정한다 — 코드로 우회 구현하지 않는다.
+- 어댑터 우선순위: `semantic_scholar → arxiv → github → tavily` (service.py `ADAPTERS`). 개별 소스 실패/키부재는 흡수되고 나머지 소스로 자연 degrade (실패 계약과 동일한 원칙).
 
 ## 3. 전체 흐름
 
@@ -305,6 +320,7 @@ tests/
 
 | 날짜 | 변경 내용 |
 |---|---|
+| 2026-07-13 | v0.5 — ① **기능 4(origin/main)와 병합**: 기능 4 담당자가 독립적으로 만든 `contracts/goal.py`·`research.py`(str Enum 사용)를 채택(add/add 충돌을 기능 4 쪽으로 해소, 필드는 동일), `contracts/__init__.py`는 기능 3의 re-export 버전 유지, `core/config.py`는 기능 4의 단일 `GEMINI_API_KEY` 채택(리서치가 Gemini 불필요해졌으므로 §6의 "키 기능별 분리"는 폐기), `tests/test_contracts.py`는 기능 4의 공동 스키마 테스트를 유지하고 기능 3의 `run_research()` 동작 테스트는 `tests/test_research.py`로 분리. 병합 후 44개 테스트 전부 통과 확인 ② **소스 확장**(§2.7): GitHub Search·Tavily 채택, Reddit은 상업적 이용 ToS 제약으로 기각 ③ **seed 소수 원칙 코드화**(§2.6): `SEED_LIMIT=4` 도입 ④ AX 리포트 6건 기반 seed 14건 큐레이션(§2.8), seed 간 URL 중복으로 일부가 조용히 드롭되던 버그를 fragment URL로 수정 |
 | 2026-07-13 | v0.4 — 기능 3 검색 백엔드 변경(§8 절차): Gemini Google Search grounding이 무료 API 티어에서 사용 불가(404/429, grounding 유료 게이팅)로 확인 → **다중 소스 실시간 API**로 교체(스프린트1: Semantic Scholar + arXiv). SPEC 정책(실시간 유지·사전 corpus 기각)은 불변, 도구만 변경(§2.5, §6). LLM(Gemini) 요약을 **옵션화**(핵심 경로는 LLM 없이 동작, `GEMINI_API_KEY_RESEARCH` 옵션). **큐레이션 seed findings 병합** 정책 추가(§2.6). `run_research` 시그니처·`ResearchContext`/`Finding` 스키마 불변 |
 | 2026-07-13 | v0.3 — ① 리서치 캐싱 정책 확정: 실시간 웹서치 유지(사전 구축 corpus 기각 유지), 단 동일 `goal_id` 재요청은 캐싱해 재검색 안 함(2.4절) ② API 키 분리 정책 추가: `GEMINI_API_KEY_RESEARCH`/`GEMINI_API_KEY_ROADMAP` 환경변수 2개, 각 모듈 자기 키만 읽음, 하드코딩 금지(6절) ③ `OnboardingData` 임시 스키마 추가(1.1절, 기능 1 확정 전·기능 4 담당자 소유) ④ HTTP 오케스트레이션 명시: `POST /roadmap/generate`는 목표 정의서만 받고 내부에서 `run_research()`→`generate_roadmap()` 순차 호출, `ResearchContext` 비노출(2.4절) |
 | 2026-07-11 | v0.2 — 아키텍처 확정: ① 기능 4는 2단계(Stage A 판정·초안 / Stage B 구조화) 설계하되 스프린트1은 둘 다 Gemini, fine-tuning은 범위 밖(교체 슬롯만 유지) ② 같은 repo 모듈 분리(별도 서비스 기각) ③ 3번 웹서치는 Gemini Google Search grounding. ResearchContext에 `status`/`finding_id`/`source_type` 등 추가, RoadmapResult에 `week`/`research_status` 추가, 실패 계약·병렬 작업 프로토콜(7절)·변경 절차(8절) 신설 |
