@@ -1,0 +1,20 @@
+[
+  {
+    "source_title": "사내 배포용 AX 도입 리포트 — 팀 LLM 위키 파일럿 (메일 수령)",
+    "source_url": "internal://reports/team-llm-wiki-pilot-2026",
+    "source_type": "practice",
+    "published_date": "2026-06",
+    "summary": "한 중간관리자 팀이 사내 문서를 정리해 LLM이 답하는 팀 위키를 파일럿했다. 초기 실패 원인은 문서 품질 편차였고, 문서 템플릿 표준화와 태깅 규칙 도입 후 검색 신뢰도와 활용도가 크게 올랐다. 위키는 구축보다 '유지되는 구조' 설계가 성패를 갈랐다.",
+    "relevant_method": "팀 LLM 위키 활성화 조건 — 문서 템플릿 표준화 + 태깅 규칙 우선",
+    "metric_snippet": null
+  },
+  {
+    "source_title": "사내 보고서 자동화 사례 정리 (메일 수령)",
+    "source_url": "internal://reports/report-automation-case-2026",
+    "source_type": "practice",
+    "published_date": "2026-05",
+    "summary": "ERP 연동 환경에서 월간 보고서를 반자동화한 사례. 데이터 취합은 규칙 기반으로 두고 서술형 요약만 LLM 초안을 쓰는 하이브리드 구조가 정확도·효율의 균형점이었다. 전체를 LLM에 맡기면 수치 오류 위험이 커진다는 경고를 담고 있다.",
+    "relevant_method": "보고서 자동화 하이브리드 — 수치는 규칙 기반, 서술만 LLM 초안",
+    "metric_snippet": "보고서 작성 시간 약 45% 단축"
+  }
+]

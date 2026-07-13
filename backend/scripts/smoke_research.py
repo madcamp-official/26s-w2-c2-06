@@ -1,11 +1,11 @@
-"""수동 스모크 테스트 — 실제 Gemini grounding으로 run_research(goal_001) 1회 호출.
+"""수동 스모크 테스트 — 실제 소스 API로 run_research(goal_001) 1회 호출.
 
-CI 자동 테스트(tests/test_contracts.py)는 네트워크를 타지 않는다. 이 스크립트는
-실제 API 키/그라운딩이 동작하는지 사람이 눈으로 확인할 때만 수동 실행한다.
+검색 백엔드는 Semantic Scholar + arXiv (무료·키 불필요, 계약 v0.4 §2.5)라
+CI 자동 테스트와 달리 실제 네트워크를 탄다. 언제든 수동 실행 가능.
 
     cd backend && uv run python scripts/smoke_research.py
 
-`GEMINI_API_KEY_RESEARCH`가 .env에 설정돼 있어야 하며, 무료 티어 RPD를 소모한다.
+Gemini 키는 필요 없다(리서치 핵심 경로는 LLM 불필요).
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ FIXTURES = Path(__file__).resolve().parent.parent / "app" / "fixtures"
 
 def main() -> None:
     goal = GoalDefinition.model_validate(json.loads((FIXTURES / "goal_001.json").read_text()))
-    print(f"▶ run_research(goal_id={goal.goal_id}) — 실제 grounding 호출...\n")
+    print(f"▶ run_research(goal_id={goal.goal_id}) — 실제 소스 API 호출 (Semantic Scholar + arXiv)...\n")
 
     cache.clear()
     ctx = run_research(goal)

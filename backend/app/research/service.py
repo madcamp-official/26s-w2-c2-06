@@ -1,10 +1,13 @@
 """run_research — 기능 3의 유일한 진입점 (계약 §2.3).
 
-흐름: 캐시 조회 → 쿼리 빌드 → (관점별) grounding 검색 + 구조화 → 신뢰도 필터·중복 제거
-     → status 판정 → 캐시 저장 → ResearchContext 반환.
+흐름: 캐시 조회 → 쿼리 빌드 → 큐레이션 seed 병합 → (쿼리×어댑터) 실시간 조회
+     → 신뢰도 필터·중복 제거 → status 판정 → 캐시 저장 → ResearchContext 반환.
+
+검색 백엔드는 다중 소스 실시간 API (계약 v0.4 §2.5, 스프린트1: Semantic Scholar + arXiv).
+LLM(Gemini) 불필요 — 핵심 경로에 외부 모델 호출이 없다.
 
 **실패 계약 (계약 §4):** 어떤 실패에도 경계 밖으로 예외를 던지지 않는다.
-검색이 실패하거나 쓸 만한 결과가 없으면 status="failed" + 빈 findings를 반환한다.
+모든 소스가 실패하거나 쓸 만한 결과가 없으면 status="failed" + 빈 findings를 반환한다.
 """
 
 from __future__ import annotations
@@ -13,14 +16,20 @@ import logging
 from datetime import datetime, timezone
 
 from app.contracts import Finding, GoalDefinition, ResearchContext
-from app.research import cache, gemini_client
-from app.research.filters import passes_trust_filter, sanitize_metric
+from app.research import cache
+from app.research.filters import first_sentence, passes_url, sanitize_metric, trim_summary
 from app.research.query_builder import build_search_queries
+from app.research.seed import load_seed_findings
+from app.research.sources import arxiv, semantic_scholar
 
 logger = logging.getLogger(__name__)
 
+# 실시간 소스 어댑터 (각각 search(query, limit) -> list[RawSource])
+ADAPTERS = [semantic_scholar, arxiv]
+
 MAX_FINDINGS = 8  # 계약 §4: 목표 3~8건
-OK_THRESHOLD = 3  # 3건 이상이면 ok, 1~2건이면 partial, 0건이면 failed
+OK_THRESHOLD = 3  # 3건 이상 ok, 1~2건 partial, 0건 failed
+PER_QUERY_LIMIT = 4
 
 
 def _now() -> datetime:
@@ -49,45 +58,84 @@ def run_research(goal: GoalDefinition) -> ResearchContext:
         collected: list[Finding] = []
         seen_urls: set[str] = set()
 
-        for query in queries:
-            try:
-                grounded = gemini_client.grounded_search(query)
-                structured = gemini_client.structure_findings(
-                    goal.goal_text, query, grounded.text, grounded.sources
+        def _add(
+            *,
+            title: str,
+            url: str,
+            source_type: str,
+            summary: str,
+            relevant_method: str,
+            published_date: str | None,
+            metric_snippet: str | None,
+        ) -> bool:
+            """중복 아니면 Finding 추가. MAX 도달 시 False."""
+            if url in seen_urls:
+                return len(collected) < MAX_FINDINGS
+            seen_urls.add(url)
+            collected.append(
+                Finding(
+                    finding_id=f"F{len(collected) + 1}",
+                    source_title=title,
+                    source_url=url,
+                    source_type=source_type,
+                    published_date=published_date,
+                    summary=summary,
+                    relevant_method=relevant_method,
+                    metric_snippet=sanitize_metric(metric_snippet),
                 )
-            except Exception:
-                # 한 관점 실패는 전체 실패로 번지지 않는다 (다른 관점으로 partial 확보 가능)
-                logger.exception("research query failed: %r", query)
-                continue
+            )
+            return len(collected) < MAX_FINDINGS
 
-            for item in structured:
-                if item.source_index < 0 or item.source_index >= len(grounded.sources):
-                    continue  # 모델이 범위 밖 인덱스를 낸 경우 방어
-                src = grounded.sources[item.source_index]
-                if not passes_trust_filter(src) or src.url in seen_urls:
-                    continue
-                seen_urls.add(src.url)
-                collected.append(
-                    Finding(
-                        finding_id=f"F{len(collected) + 1}",
-                        source_title=src.title,
-                        source_url=src.url,
-                        source_type=item.source_type,
-                        published_date=None,  # grounding metadata에 신뢰할 발행일 없음 → null
-                        summary=item.summary.strip(),
-                        relevant_method=item.relevant_method.strip(),
-                        metric_snippet=sanitize_metric(item.metric_snippet),
-                    )
-                )
-                if len(collected) >= MAX_FINDINGS:
-                    break
-            if len(collected) >= MAX_FINDINGS:
+        # 1) 큐레이션 seed findings (계약 §2.6) — 실시간 결과보다 앞에 병합
+        for sd in load_seed_findings(goal_id):
+            url = (sd.get("source_url") or "").strip()
+            title = (sd.get("source_title") or "").strip()
+            summary = (sd.get("summary") or "").strip()
+            if not (url and title and summary):
+                continue  # 불완전 seed는 건너뜀 (실패 계약: 예외 없이 skip)
+            if not _add(
+                title=title,
+                url=url,
+                source_type=sd.get("source_type") or "practice",
+                summary=summary,
+                relevant_method=(sd.get("relevant_method") or "").strip() or title,
+                published_date=sd.get("published_date"),
+                metric_snippet=sd.get("metric_snippet"),
+            ):
                 break
 
+        # 2) 실시간 소스 조회 (쿼리 × 어댑터). 개별 실패는 흡수하고 계속
+        for query in queries:
+            if len(collected) >= MAX_FINDINGS:
+                break
+            for adapter in ADAPTERS:
+                if len(collected) >= MAX_FINDINGS:
+                    break
+                try:
+                    raws = adapter.search(query, limit=PER_QUERY_LIMIT)
+                except Exception as exc:
+                    # 개별 소스의 일시 실패(429/타임아웃 등)는 다른 소스로 흡수 — 전체 traceback 대신 경고
+                    logger.warning("source failed: %s query=%r (%s)", adapter.__name__, query, exc)
+                    continue
+                for rs in raws:
+                    if not passes_url(rs.url):
+                        continue
+                    summary = trim_summary(rs.abstract) or rs.title
+                    method = first_sentence(rs.abstract) or rs.title
+                    if not _add(
+                        title=rs.title,
+                        url=rs.url,
+                        source_type=rs.source_type,
+                        summary=summary,
+                        relevant_method=method,
+                        published_date=rs.published_date,
+                        metric_snippet=rs.metric_snippet,
+                    ):
+                        break
+
         if not collected:
-            # 쓸 만한 근거 0건 → failed (계약: failed는 빈 findings). 캐싱하지 않음(재시도 허용)
             logger.warning("research produced no findings: goal_id=%s", goal_id)
-            return _failed(goal_id, queries)
+            return _failed(goal_id, queries)  # 캐싱하지 않음 (재시도 허용)
 
         status = "ok" if len(collected) >= OK_THRESHOLD else "partial"
         ctx = ResearchContext(
