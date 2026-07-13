@@ -31,6 +31,13 @@ class Task(BaseModel):
     tools_needed: list[str] = Field(default_factory=list)
     failure_risk: str
     source_refs: list[str] = Field(default_factory=list)
+    detailed_guide: str = Field(
+        default="",
+        description=(
+            "관련 업무를 전혀 모르는 사람도 바로 따라 할 수 있는 단계별 상세 가이드. "
+            "도구 계정 생성/설정 방법, 실제로 복사해서 쓸 수 있는 예시 프롬프트 등을 포함"
+        ),
+    )
 
 
 class RoleReassignmentSuggestion(BaseModel):
