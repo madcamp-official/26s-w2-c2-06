@@ -9,6 +9,10 @@ def bold_text(content: str) -> dict:
     return {"type": "text", "text": {"content": content}, "annotations": {"bold": True}}
 
 
+def link_text(content: str, url: str) -> dict:
+    return {"type": "text", "text": {"content": content, "link": {"url": url}}}
+
+
 def paragraph(content: str) -> dict:
     return {"type": "paragraph", "paragraph": {"rich_text": [text(content)]}}
 
@@ -65,6 +69,11 @@ def callout(content: str, icon: str = "💡") -> dict:
 
 def bulleted(content: str) -> dict:
     return {"type": "bulleted_list_item", "bulleted_list_item": {"rich_text": [text(content)]}}
+
+
+def bulleted_rich(spans: list[dict]) -> dict:
+    """이미 만든 rich_text span들(예: link_text + text 조합)로 글머리 기호 항목을 만든다."""
+    return {"type": "bulleted_list_item", "bulleted_list_item": {"rich_text": spans}}
 
 
 def numbered(content: str) -> dict:

@@ -3,7 +3,7 @@
 > `SPEC.md` 4.3(BP 리서치 엔진)·4.4(맞춤 로드맵 + 평가 지표 생성)를 구현하기 위한 공통 기술 계약. 두 기능 담당자 모두 이 문서를 기준으로 작업하고, 각자의 세부 구현은 `SPRINT1_FEATURE3_BP_RESEARCH.md` / `SPRINT1_FEATURE4_ROADMAP_GENERATOR.md`에 기록한다. **이 계약이 바뀌면 두 담당자 모두에게 공유하고 이 문서를 갱신한다.**
 
 - 최종 수정일: 2026-07-13
-- 상태: v0.7 (§2.7 어댑터 우선순위를 고정 순서 → pillar 라운드로빈으로 교체 — practice/trend가 research 소스에 밀려 크라우드아웃되던 문제 해소. 스키마·시그니처 불변)
+- 상태: v0.8 (§1.1 `OnboardingData` 예시를 실제 `app/contracts/onboarding.py` 코드 기준으로 정정 — 기능 4 담당자가 문서-코드 불일치 발견 후 코드를 기준으로 문서 수정. 스키마·시그니처 불변, 이전 v0.7 변경사항도 그대로 유지)
 
 ---
 
@@ -32,33 +32,32 @@
 
 이 예시처럼 목표는 이미 조직 환경(허용 도구, 연동 시스템, 보안 제약)을 담고 있고, 1번에서 수집한 반복 업무 후보도 참조로 들고 있다. 이 스키마는 `contracts/goal.py`(`GoalDefinition`)로 코드화하며, 스프린트1 동안 `fixtures/goal_001.json`을 표준 입력 픽스처로 사용한다.
 
-### 1.1 온보딩 데이터 — `OnboardingData` (임시 스키마, v0.3 추가)
+### 1.1 온보딩 데이터 — `OnboardingData` (임시 스키마, v0.3 추가, v0.8에서 실제 코드 기준으로 정정)
 
-> **⚠️ 임시(기능 1 확정 전).** 기능 1(온보딩 인터뷰)의 정식 산출물 스키마가 아직 확정되지 않았다. 아래는 기능 4 담당자가 개발을 시작하기 위해 `app/contracts/onboarding.py`에 임시로 정의한 스키마(파일이 아직 없으면 본 절이 그 초안)이며, 근거는 `SPEC.md` 4.1의 출력(팀 프로필 + 반복 업무 리스트 + 팀원 태깅)이다. 기능 1이 확정되면 8절 변경 절차로 정식화한다. 소유권은 기능 4 담당자(임시 정의자)에게 있으며 기능 3은 이 스키마를 사용하지 않는다(`run_research`의 입력은 `GoalDefinition`뿐).
+> **⚠️ 임시(기능 1 확정 전).** 기능 1(온보딩 인터뷰)의 정식 산출물 스키마가 아직 확정되지 않았다. 아래는 기능 4 담당자가 `app/contracts/onboarding.py`에 실제로 구현·테스트해둔 스키마이며, 근거는 `SPEC.md` 4.1의 출력(팀 프로필 + 반복 업무 리스트 + 팀원 태깅)이다. 기능 1이 확정되면 8절 변경 절차로 정식화한다. 소유권은 기능 4 담당자(임시 정의자)에게 있으며 기능 3은 이 스키마를 사용하지 않는다(`run_research`의 입력은 `GoalDefinition`뿐).
+>
+> **v0.8 정정 사유**: v0.3에서 이 절에 적었던 예시(`team_profile` 중첩, `ai_adoption_level`, `task_name`/`is_structured`/`avg_duration_min`, `member_alias`/`workload`)는 SPEC 4.1만 보고 새로 쓴 것이라, 실제 `app/contracts/onboarding.py` 코드(평평한 구조, 아래 필드명)와 달랐다. 코드가 이미 `generate_roadmap()`·Stage A 프롬프트·테스트에 전부 연결되어 있어 코드 쪽을 기준으로 문서를 고쳤다.
 
 ```json
 {
-  "team_profile": {
-    "industry": "제조",
-    "team_size": 8,
-    "ai_adoption_level": "가끔 필요할 때 씀"
-  },
+  "team_size": 8,
+  "industry": "제조",
   "repetitive_tasks": [
     {
-      "task_name": "월간 보고서 작성",
-      "frequency": "매월",
-      "is_structured": true,
-      "avg_duration_min": 180,
+      "title": "월간 보고서 작성",
+      "frequency": "주 1회 이상",
+      "is_standardized": true,
+      "avg_time_minutes": 180,
       "contains_sensitive_info": true,
       "current_method": "엑셀 수기 취합 후 워드 작성"
     }
   ],
   "member_tags": [
     {
-      "member_alias": "M1",
+      "member_id": "M1",
       "strengths": ["데이터 정리"],
       "ai_comfort_level": "높음",
-      "workload": "중"
+      "workload_level": "중"
     }
   ]
 }
@@ -66,10 +65,10 @@
 
 **규약 (임시)**
 
-- `ai_adoption_level`: SPEC 4.1의 4단계 — `"안 씀" | "궁금해서 써봄" | "가끔 필요할 때 씀" | "업무에 적극 활용"`.
-- `repetitive_tasks[]`: SPEC 4.1 "반복 업무 상세"의 최소 필드(빈도/정형성/평균 소요시간/민감정보 여부/기존 처리 방식). `avg_duration_min`·`current_method`는 nullable.
-- `member_tags[]`: SPEC 4.1 "(선택) 팀원 태깅" — **이름 대신 익명 식별자**(`member_alias`, 예: `M1`) 사용 (SPEC 2.6·4.1 정책). 선택 항목이므로 기본값 빈 배열.
-- `generate_roadmap()`가 역할 재분배 제안(SPEC 4.4)과 반복 업무 참조에 사용한다. 스프린트1 픽스처는 `fixtures/onboarding_goal_001.json`(있으면)으로 제공하되, 파일 소유·검수는 기능 4 담당자 몫이다.
+- 최상위에 `team_profile` 래핑이 없다 — `team_size`/`industry`가 `OnboardingData`의 바로 아래 필드. `ai_adoption_level`(SPEC 4.1의 4단계 AI 활용 수준)은 아직 스키마에 없음 — 필요해지면 8절 절차로 추가.
+- `repetitive_tasks[]`: SPEC 4.1 "반복 업무 상세"의 최소 필드(빈도/정형성/평균 소요시간/민감정보 여부/기존 처리 방식). 필드명은 `title`/`frequency`/`is_standardized`/`avg_time_minutes`/`contains_sensitive_info`/`current_method`. `frequency`는 자유 텍스트(예: "주 1회 이상"/"월 1회 이하")이며, Stage A 프롬프트가 이 문자열을 "자주/가끔" 적합성 판정 기준으로 해석한다(`app/roadmap/prompts.py`의 `_FITNESS_MATRIX_BLOCK` 참고).
+- `member_tags[]`: SPEC 4.1 "(선택) 팀원 태깅" — **이름 대신 익명 식별자**(`member_id`, 예: `M1`) 사용 (SPEC 2.6·4.1 정책). 필드명은 `member_id`/`strengths`/`ai_comfort_level`/`workload_level`. 선택 항목이므로 기본값 빈 배열.
+- `generate_roadmap()`가 역할 재분배 제안(SPEC 4.4)과 반복 업무 참조에 사용한다. 스프린트1 픽스처는 `app/fixtures/onboarding_001.json`(실제 존재, 위 예시와 동일 스키마). 파일 소유·검수는 기능 4 담당자 몫이다.
 
 ## 2. 아키텍처 확정 사항 (v0.2에서 결정)
 
@@ -342,6 +341,7 @@ PILLARS = [
 
 | 날짜 | 변경 내용 |
 |---|---|
+| 2026-07-13 | v0.8 — §1.1 `OnboardingData` 문서-코드 불일치 발견 및 정정: v0.3에서 SPEC 4.1만 보고 새로 쓴 예시(`team_profile` 중첩, `ai_adoption_level`, `task_name`/`is_structured`/`avg_duration_min`, `member_alias`/`workload`)가 실제 `app/contracts/onboarding.py`(평평한 구조, `title`/`is_standardized`/`avg_time_minutes`/`member_id`/`workload_level`)와 달랐다. 코드가 이미 `generate_roadmap()`·Stage A 프롬프트·테스트에 연결되어 있어 문서를 코드 기준으로 수정(코드 변경 없음). 기능 4에서 추가로: 로드맵 근거 인용에 `source_url` 클릭 링크·`metric_snippet` 반영(계약 §4 "출처 인용 원천은 source_url/metric_snippet" 규약 실행), `RoadmapResult`를 `goal_id`로 캐싱해 동일 목표 재요청 시 Gemini Stage A+B 재호출 생략(§2.4 "오픈 제안" 구현, `app/roadmap/cache.py`). 69 tests passed |
 | 2026-07-13 | v0.7 — §2.9 신설: 소스 선택 로직을 고정 어댑터 순서(`semantic_scholar→arxiv→github→tavily`)에서 **pillar(practice/trend/research) 라운드로빈**으로 교체. research 소스 둘만으로 `MAX_FINDINGS`가 채워져 practice·trend가 크라우드아웃되던 문제 해소(LLM 미사용, 규칙 기반). `service.py`의 `ADAPTERS` 상수를 `PILLARS`로 대체. 실호출로 Tavily(trend) 정상 반영 확인. 회귀 테스트 2건 추가, 65 tests passed |
 | 2026-07-13 | v0.6 — §2.4 HTTP 오케스트레이션 계약 불일치 해소: `app/routers/roadmap.py`의 `/generate`·`/publish`·`/generate-and-publish`가 `ResearchContext`를 요청 바디로 받던 것을 제거하고, 서버 내부에서 `run_research(goal)`을 호출하도록 수정(§2.4에 `/publish` 적용 범위 명확화 추가). 기능 4 소유 파일이지만 사용자가 비용-편익 분석 후 위임한 예외 조치. `RoadmapResult` 캐싱은 오픈 제안으로 남김(§2.4). origin/main(Notion 발행 기능) 병합 포함. 통합테스트(함수+HTTP 레벨) 재검증 완료, 63 tests passed |
 | 2026-07-13 | v0.5 — ① **기능 4(origin/main)와 병합**: 기능 4 담당자가 독립적으로 만든 `contracts/goal.py`·`research.py`(str Enum 사용)를 채택(add/add 충돌을 기능 4 쪽으로 해소, 필드는 동일), `contracts/__init__.py`는 기능 3의 re-export 버전 유지, `core/config.py`는 기능 4의 단일 `GEMINI_API_KEY` 채택(리서치가 Gemini 불필요해졌으므로 §6의 "키 기능별 분리"는 폐기), `tests/test_contracts.py`는 기능 4의 공동 스키마 테스트를 유지하고 기능 3의 `run_research()` 동작 테스트는 `tests/test_research.py`로 분리. 병합 후 44개 테스트 전부 통과 확인 ② **소스 확장**(§2.7): GitHub Search·Tavily 채택, Reddit은 상업적 이용 ToS 제약으로 기각 ③ **seed 소수 원칙 코드화**(§2.6): `SEED_LIMIT=4` 도입 ④ AX 리포트 6건 기반 seed 14건 큐레이션(§2.8), seed 간 URL 중복으로 일부가 조용히 드롭되던 버그를 fragment URL로 수정 |
