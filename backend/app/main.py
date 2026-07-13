@@ -1,9 +1,9 @@
 from fastapi import FastAPI
 
-from app.routers import opportunity
+from app.routers import roadmap
 
 app = FastAPI(title="AI Champion Backend")
-app.include_router(opportunity.router)
+app.include_router(roadmap.router)
 
 
 @app.get("/health")
