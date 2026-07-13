@@ -15,7 +15,7 @@ import pytest
 from app.contracts.goal import GoalDefinition, OrgConstraints
 from app.contracts.research import Finding, ResearchContext
 from app.research import cache, run_research
-from app.research.service import SEED_LIMIT
+from app.research.service import MAX_FINDINGS, SEED_LIMIT
 from app.research.sources import arxiv, github, semantic_scholar, tavily
 from app.research.sources.base import RawSource
 
@@ -88,6 +88,43 @@ def test_partial_when_few(monkeypatch):
     _install_sources(monkeypatch, ss=[_paper("https://a/x")])
     ctx = run_research(_goal("goal_no_seed"))
     assert ctx.status == "partial" and len(ctx.findings) == 1
+
+
+# ── 소스 다양성 (pillar 라운드로빈, v0.6) ───────────────────────
+
+
+def test_practice_and_trend_not_crowded_out_by_research(monkeypatch):
+    """semantic_scholar+arxiv(research pillar)만으로 MAX_FINDINGS를 다 채울 만큼 결과가 많아도,
+    github(practice)·tavily(trend) 결과가 최종 findings에 반드시 섞여야 한다.
+    (v0.5까지의 버그: 고정 어댑터 순서 `ss→arx→gh→tv` 때문에 research 두 개만으로
+    MAX_FINDINGS가 차버리면 practice/trend는 같은 요청에서 한 번도 반영되지 못했다.)"""
+    _install_sources(
+        monkeypatch,
+        ss=[_paper(f"https://ss/{i}") for i in range(4)],
+        arx=[_paper(f"https://arx/{i}") for i in range(4)],
+        gh=[RawSource(title="GH repo", url="https://github.com/x", abstract="A", source_type="practice", published_date=None)],
+        tv=[RawSource(title="TV post", url="https://blog/x", abstract="A", source_type="trend", published_date=None)],
+    )
+    ctx = run_research(_goal("goal_no_seed"))
+
+    assert len(ctx.findings) == MAX_FINDINGS  # 후보 10건 중 상한까지 채움
+    types = {f.source_type for f in ctx.findings}
+    assert "practice" in types, "GitHub(practice) 결과가 최종 findings에서 밀려났다"
+    assert "trend" in types, "Tavily(trend) 결과가 최종 findings에서 밀려났다"
+
+
+def test_pillar_roundrobin_picks_practice_and_trend_first_within_query(monkeypatch):
+    """pillar 순서(practice→trend→research)대로 동률 시 실무 근거를 먼저 채택하는지 확인."""
+    _install_sources(
+        monkeypatch,
+        ss=[_paper("https://ss/0")],
+        arx=[_paper("https://arx/0")],
+        gh=[RawSource(title="GH repo", url="https://github.com/x", abstract="A", source_type="practice", published_date=None)],
+        tv=[RawSource(title="TV post", url="https://blog/x", abstract="A", source_type="trend", published_date=None)],
+    )
+    ctx = run_research(_goal("goal_no_seed"))
+    # 라운드로빈 1라운드: practice, trend, research(ss), research(arx) 순
+    assert [f.source_type for f in ctx.findings] == ["practice", "trend", "research", "research"]
 
 
 # ── seed 병합 (계약 §2.6) ──────────────────────────────────────

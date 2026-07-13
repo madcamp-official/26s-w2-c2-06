@@ -3,7 +3,7 @@
 > 공통 계약은 `SPRINT1_CONTRACT.md` 참고 (특히 2절 아키텍처 확정, 4절 ResearchContext 스키마, 7절 병렬 작업 프로토콜). 이 문서는 기능 3 담당자가 계약을 확인하고, 세부 구현 계획을 채워나가는 문서다. 스펙 근거는 `SPEC.md` 4.3.
 
 - 최종 수정일: 2026-07-13
-- 상태: 계약 v0.6 반영 (소스 4종: 논문 API + GitHub + Tavily, Reddit 기각. AX 리포트 6건 기반 seed 14건. 기능 4와 병합 통합 완료. §2.4 HTTP 오케스트레이션 계약 불일치 해소)
+- 상태: 계약 v0.7 반영 (소스 4종: 논문 API + GitHub + Tavily, Reddit 기각. AX 리포트 6건 기반 seed 14건. 기능 4와 병합 통합 완료. §2.4 HTTP 오케스트레이션 계약 불일치 해소. §2.9 소스 선택 로직을 pillar 라운드로빈으로 교체)
 
 ---
 
@@ -38,7 +38,7 @@
 
 | 파일 | 역할 |
 |---|---|
-| `app/research/service.py` | `run_research()` 진입점. 캐시조회→쿼리빌드→소스 어댑터 실시간 조회→seed 병합→필터·중복제거→status판정→캐시저장. **실패 계약**(예외 미전파, failed+빈 findings)을 여기서 보장 |
+| `app/research/service.py` | `run_research()` 진입점. 캐시조회→쿼리빌드→seed 병합→**pillar 라운드로빈으로 소스 어댑터 실시간 조회**(§2.9)→필터·중복제거→status판정→캐시저장. **실패 계약**(예외 미전파, failed+빈 findings)을 여기서 보장 |
 | `app/research/query_builder.py` | `goal_text`+`org_constraints`로 검색 쿼리 2~4개 생성(도구·연동 시스템 + AX 키워드). 추후 LLM 키워드 추출로 승격 가능 |
 | `app/research/sources/` | 소스 어댑터 4종(§2.7). `semantic_scholar.py`·`arxiv.py`(논문, 키불필요) · `github.py`(practice, 키불필요·토큰있으면상향) · `tavily.py`(trend, 키 옵션·없으면 조용히 생략). 어댑터별 예외는 상위에서 흡수 |
 | `app/research/seed.py` | 큐레이션 seed findings 로더(`fixtures/seed_findings_*.json`). 실시간 결과와 같은 스키마로 병합, `service.SEED_LIMIT`(=4)만큼만 요청당 사용 (계약 §2.6, §2.8) |
@@ -97,13 +97,22 @@
 
 </details>
 
+### ✅ 해결됨 — 소스 선택 로직이 practice/trend를 크라우드아웃 (v0.7, 2026-07-13)
+
+Tavily 키를 실제로 발급받아 `.env`에 넣은 뒤 스모크 검증하는 과정에서, 키가 정상인데도 `run_research()` 경로로는 한 번도 호출되지 않는 현상을 발견했다.
+
+- **원인**: `service.py`의 `ADAPTERS = [semantic_scholar, arxiv, github, tavily]` 고정 순서 + `MAX_FINDINGS=8`, `PER_QUERY_LIMIT=4` 조합 때문에, semantic_scholar+arxiv(둘 다 research 소스) 결과만으로 첫 쿼리에서 이미 8건이 채워지면 github·tavily는 그 요청에서 아예 호출되지 못했다. 실제로 goal_001·goal_marketing_001·최초 Tavily 스모크에서 findings 8건이 매번 전부 `research` 타입이었던 이유가 이거였다(`tavily.search()`를 파이프라인 밖에서 직접 호출하면 정상적으로 5건이 반환되는 것으로 키 자체는 문제없음을 확인).
+- **결정**: §2.9(계약 문서 참고) — 소스를 SPEC 4.3의 세 조사 대상(practice/trend/research)으로 묶은 **pillar 라운드로빈**으로 교체. 판단 기준은 사용자 요청대로 **LLM 없이 규칙 기반**(source_type 가중치: 리스트 순서 practice→trend→research가 동률 시 우선순위 + pillar별 최소 반영 보장)으로 구현했다. `service.py`의 `ADAPTERS` 상수를 `PILLARS`(pillar명, 어댑터 리스트) 튜플 목록으로, 어댑터 순차 소진 루프를 `_roundrobin()`(itertools 레시피)로 교체.
+- **재검증**: 신규 `goal_id`로 실호출 → `[practice, trend, research, research, ...]` 순서로 8건 중 4건이 Tavily(trend)로 채워짐 확인(이전엔 8건 전부 research). 회귀 테스트 2건 추가(`test_practice_and_trend_not_crowded_out_by_research`, `test_pillar_roundrobin_picks_practice_and_trend_first_within_query`).
+- **불변**: `run_research` 시그니처·`ResearchContext`/`Finding` 스키마·실패 계약·캐싱 정책 전부 그대로. 기존 13개 테스트도 전부 원래 로직대로 통과(핵심 흐름은 그대로, 소스 간 순서만 바뀜).
+
 ## 5. 오픈 이슈
 
 - ~~리서치 갱신 주기~~ → 계약 v0.3 §2.4 확정: `goal_id` 단위 캐싱, 갱신 주기 자동화는 이후 스프린트
 - LLM 요약 품질(현재 abstract 트림) — 정상 Gemini 키/유료 티어 확보 시 요약 단계 옵션 추가
 - ~~소스 확장: GitHub·범용 검색 어댑터 추가~~ → v0.5에서 GitHub·Tavily 채택 완료(§2.7). Reddit은 상업적 이용 ToS 제약으로 기각(확정, 유료 계약 없이는 재검토 안 함)
-- **Tavily 실 스모크 미검증**: `TAVILY_API_KEY` 확보 후 실제 trend 결과가 스키마에 맞게 들어오는지 재확인 필요
-- 한글 목표 → 영문 논문/GitHub API 쿼리 키워드 품질(현재 도구·시스템·AX 키워드 조합, LLM 키워드 추출로 승격 가능)
+- ~~Tavily 실 스모크 미검증~~ → v0.7에서 해결. 키 발급·투입 후 실호출로 trend findings 반영 확인(위 §4 참고)
+- 한글 목표 → 영문 논문/GitHub API 쿼리 키워드 품질(현재 도구·시스템·AX 키워드 조합, LLM 키워드 추출로 승격 가능) — GitHub(practice)이 일부 목표에서 0건 반환하는 원인으로 추정
 - seed findings 확장: 현재 goal_001 전용. 다른 goal_id에 대한 seed는 미준비(seed 파일 없으면 자동으로 실시간 조회만 사용 — 정상 동작)
 - ~~`app/routers/roadmap.py`가 계약 §2.4 HTTP 오케스트레이션과 다름~~ → v0.6에서 해결(§4 참고)
 - **`RoadmapResult` 캐싱 미구현** (신규, v0.6에서 제안): §4 "오픈 제안" 참고. 기능 4 담당자와 조율 필요(8절 절차)
@@ -112,6 +121,7 @@
 
 | 날짜 | 변경 내용 |
 |---|---|
+| 2026-07-13 | 계약 v0.7 — 소스 선택 로직을 고정 어댑터 순서에서 **pillar(practice/trend/research) 라운드로빈**으로 교체(§2.9). Tavily 키 발급 후 실호출로 정상 반영 검증, `TAVILY_API_KEY` 미설정 시 조용히 생략되던 것과 별개로 키가 있어도 크라우드아웃되던 버그 해소. `ADAPTERS`→`PILLARS`, `_roundrobin()` 신설. 회귀 테스트 2건 추가, 65 tests passed |
 | 2026-07-13 | 계약 v0.6 — HTTP 오케스트레이션 계약 불일치 해소: `app/routers/roadmap.py`의 `/generate`·`/publish`·`/generate-and-publish`가 `ResearchContext`를 요청 바디로 받던 것을 제거, 서버 내부 `run_research()` 호출로 수정(비용-편익 분석 후 사용자 승인, §4 참고). origin/main(Notion 발행 기능) 병합. `RoadmapResult` 캐싱은 오픈 제안으로 남김. 함수+HTTP 레벨 통합 재검증, 63 tests passed |
 | 2026-07-13 | 기능3↔4 통합 테스트(계약 §7-4 DoD) 완료 — 실제 `run_research(goal_001)` 출력을 코드 수정 없이 `generate_roadmap()`에 투입, ok/failed 양경로 검증. 통합 중 `app/routers/roadmap.py`가 계약 §2.4(HTTP 오케스트레이션·리서치 비노출)와 다르게 구현된 것을 발견(§4 기록) — 기능 4 소유 파일이라 수정하지 않고 보고만 함 |
 | 2026-07-13 | v0.5 — origin/main(기능 4)과 병합, `contracts/`를 기능 4 소유 버전으로 통일. 소스 어댑터 GitHub·Tavily 추가(Reddit은 상업적 ToS 제약으로 기각). AX 리포트 6건 기반 seed findings 14건 큐레이션(URL 중복 버그 수정, `SEED_LIMIT=4` 도입). 테스트를 `test_research.py`(run_research 동작)와 `test_contracts.py`(공동 스키마, 기능 4 소유)로 분리, 44 tests passed |

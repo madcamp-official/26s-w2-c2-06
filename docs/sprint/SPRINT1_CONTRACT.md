@@ -3,7 +3,7 @@
 > `SPEC.md` 4.3(BP 리서치 엔진)·4.4(맞춤 로드맵 + 평가 지표 생성)를 구현하기 위한 공통 기술 계약. 두 기능 담당자 모두 이 문서를 기준으로 작업하고, 각자의 세부 구현은 `SPRINT1_FEATURE3_BP_RESEARCH.md` / `SPRINT1_FEATURE4_ROADMAP_GENERATOR.md`에 기록한다. **이 계약이 바뀌면 두 담당자 모두에게 공유하고 이 문서를 갱신한다.**
 
 - 최종 수정일: 2026-07-13
-- 상태: v0.6 (§2.4 HTTP 오케스트레이션 불일치 해소 — `app/routers/roadmap.py`를 계약대로 수정. Notion 발행(`/publish`, `/generate-and-publish`) 관련 origin/main 병합 반영. 스키마·시그니처 불변)
+- 상태: v0.7 (§2.7 어댑터 우선순위를 고정 순서 → pillar 라운드로빈으로 교체 — practice/trend가 research 소스에 밀려 크라우드아웃되던 문제 해소. 스키마·시그니처 불변)
 
 ---
 
@@ -170,7 +170,26 @@ tests/
 - **GitHub Search API 채택** (`source_type="practice"`, frontier 개인·현장 도구/프롬프트 활용법). 무료·키 불필요(검색 엔드포인트 비인증 10회/분, `GITHUB_TOKEN` 있으면 30회/분). 실 호출로 검증 완료 — goal_001 관련 쿼리에서 목표와 직접 연관된 저장소가 실제로 조회됨.
 - **Tavily 채택** (`source_type="trend"`, AX 트렌드·블로그). 월 1,000 크레딧 무료(카드 불필요), `TAVILY_API_KEY` 필요. **키 미설정 시 해당 소스만 조용히 생략**(호출 자체를 안 함, 다른 소스로 degrade) — 나머지 소스는 정상 동작. `goal_id` 캐싱(§2.4)으로 크레딧 절약.
 - **Reddit 기각(확정)**: Reddit Data API 무료 티어는 **비상업적 이용으로 명시적으로 제한**되며, 상업적 이용은 별도 유료 계약(연 기본 $12,000선)과 수동 승인이 필요하다. AI Champion은 실제 서비스(상업적 의도)이므로 무료 티어로 Reddit 데이터를 가져오는 것은 ToS 위반 리스크가 있다. 유료 계약 없이는 채택하지 않는다. 필요성이 커지면 유료 계약 여부를 사용자와 별도로 결정한다 — 코드로 우회 구현하지 않는다.
-- 어댑터 우선순위: `semantic_scholar → arxiv → github → tavily` (service.py `ADAPTERS`). 개별 소스 실패/키부재는 흡수되고 나머지 소스로 자연 degrade (실패 계약과 동일한 원칙).
+- ~~어댑터 우선순위: `semantic_scholar → arxiv → github → tavily` (service.py `ADAPTERS`)~~ → **v0.7에서 교체**(아래 §2.9). 개별 소스 실패/키부재는 흡수되고 나머지 소스로 자연 degrade (실패 계약과 동일한 원칙, 유지).
+
+### 2.9 소스 선택 로직 — 고정 우선순위 → pillar 라운드로빈 (v0.7에서 결정)
+
+**문제**: §2.7의 고정 어댑터 순서(`semantic_scholar → arxiv → github → tavily`)는 실제로는 "우선순위"가 아니라 "먼저 채운 소스가 이긴다"였다. `MAX_FINDINGS=8`, `PER_QUERY_LIMIT=4`인데 논문 소스 둘(semantic_scholar+arxiv)만으로 한 쿼리에서 최대 8건이 나올 수 있어, **실제로는 GitHub·Tavily가 같은 요청 안에서 한 번도 호출될 기회를 못 얻는 경우가 흔했다**(goal_001, 신규 goal_marketing_001 스모크에서 findings 8건이 전부 `research` 타입이었던 사례로 실증됨). Tavily 키를 발급받아 넣어도 이 구조 때문에 사실상 죽어있는 상태였다.
+
+**결정**: `SPEC.md` 4.3의 세 조사 대상(AX 트렌드=trend, 논문/연구=research, frontier 개인 활용법=practice)을 **pillar**로 묶고, 쿼리마다 pillar 간 **라운드로빈**으로 한 건씩 채택한다.
+
+```python
+PILLARS = [
+    ("practice", [github]),                    # 실무 적합도 최우선
+    ("trend", [tavily]),
+    ("research", [semantic_scholar, arxiv]),    # 같은 pillar 내 여러 어댑터는 연결 후 함께 라운드로빈에 참여
+]
+```
+
+- **판단 기준 = 규칙 기반, LLM 미사용**: source_type(pillar)별 다양성 보장 + 리스트 순서로 동률 시 우선순위(practice > trend > research)를 표현한다. LLM으로 관련도를 점수화하는 대안도 검토했으나 기각 — 계약 §2.5(핵심 경로 LLM 불필요)를 지키고, 무료 Gemini 티어 불안정(§2.5 배경) 리스크를 다시 끌어들이지 않기 위함.
+- **효과**: 후보가 8건보다 많을 때도 practice/trend가 최종 findings에서 배제되지 않는다(회귀 테스트: `tests/test_research.py::test_practice_and_trend_not_crowded_out_by_research`). 실호출 검증: 신규 goal_id로 실제 조회 시 `[practice, trend, research, research, ...]` 순서로 8건 중 4건이 trend(Tavily)로 채워짐 확인(이전에는 8건 전부 research였음).
+- **불변**: `run_research` 시그니처, `ResearchContext`/`Finding` 스키마, 실패 계약(개별 어댑터 실패 흡수) — 전부 그대로. `MAX_FINDINGS`/`PER_QUERY_LIMIT`/`OK_THRESHOLD` 값도 불변.
+- **오픈 이슈로 남는 것**: GitHub(practice) 쿼리가 특정 목표에서 0건을 반환하는 경우가 있음(쿼리 키워드 품질 — 기존 오픈 이슈 "한글 목표 → 영문 쿼리 키워드 품질"과 동일 원인으로 추정, 별도 조치 없음).
 
 ## 3. 전체 흐름
 
@@ -323,6 +342,7 @@ tests/
 
 | 날짜 | 변경 내용 |
 |---|---|
+| 2026-07-13 | v0.7 — §2.9 신설: 소스 선택 로직을 고정 어댑터 순서(`semantic_scholar→arxiv→github→tavily`)에서 **pillar(practice/trend/research) 라운드로빈**으로 교체. research 소스 둘만으로 `MAX_FINDINGS`가 채워져 practice·trend가 크라우드아웃되던 문제 해소(LLM 미사용, 규칙 기반). `service.py`의 `ADAPTERS` 상수를 `PILLARS`로 대체. 실호출로 Tavily(trend) 정상 반영 확인. 회귀 테스트 2건 추가, 65 tests passed |
 | 2026-07-13 | v0.6 — §2.4 HTTP 오케스트레이션 계약 불일치 해소: `app/routers/roadmap.py`의 `/generate`·`/publish`·`/generate-and-publish`가 `ResearchContext`를 요청 바디로 받던 것을 제거하고, 서버 내부에서 `run_research(goal)`을 호출하도록 수정(§2.4에 `/publish` 적용 범위 명확화 추가). 기능 4 소유 파일이지만 사용자가 비용-편익 분석 후 위임한 예외 조치. `RoadmapResult` 캐싱은 오픈 제안으로 남김(§2.4). origin/main(Notion 발행 기능) 병합 포함. 통합테스트(함수+HTTP 레벨) 재검증 완료, 63 tests passed |
 | 2026-07-13 | v0.5 — ① **기능 4(origin/main)와 병합**: 기능 4 담당자가 독립적으로 만든 `contracts/goal.py`·`research.py`(str Enum 사용)를 채택(add/add 충돌을 기능 4 쪽으로 해소, 필드는 동일), `contracts/__init__.py`는 기능 3의 re-export 버전 유지, `core/config.py`는 기능 4의 단일 `GEMINI_API_KEY` 채택(리서치가 Gemini 불필요해졌으므로 §6의 "키 기능별 분리"는 폐기), `tests/test_contracts.py`는 기능 4의 공동 스키마 테스트를 유지하고 기능 3의 `run_research()` 동작 테스트는 `tests/test_research.py`로 분리. 병합 후 44개 테스트 전부 통과 확인 ② **소스 확장**(§2.7): GitHub Search·Tavily 채택, Reddit은 상업적 이용 ToS 제약으로 기각 ③ **seed 소수 원칙 코드화**(§2.6): `SEED_LIMIT=4` 도입 ④ AX 리포트 6건 기반 seed 14건 큐레이션(§2.8), seed 간 URL 중복으로 일부가 조용히 드롭되던 버그를 fragment URL로 수정 |
 | 2026-07-13 | v0.4 — 기능 3 검색 백엔드 변경(§8 절차): Gemini Google Search grounding이 무료 API 티어에서 사용 불가(404/429, grounding 유료 게이팅)로 확인 → **다중 소스 실시간 API**로 교체(스프린트1: Semantic Scholar + arXiv). SPEC 정책(실시간 유지·사전 corpus 기각)은 불변, 도구만 변경(§2.5, §6). LLM(Gemini) 요약을 **옵션화**(핵심 경로는 LLM 없이 동작, `GEMINI_API_KEY_RESEARCH` 옵션). **큐레이션 seed findings 병합** 정책 추가(§2.6). `run_research` 시그니처·`ResearchContext`/`Finding` 스키마 불변 |
