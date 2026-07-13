@@ -3,7 +3,7 @@
 > `SPEC.md` 4.3(BP 리서치 엔진)·4.4(맞춤 로드맵 + 평가 지표 생성)를 구현하기 위한 공통 기술 계약. 두 기능 담당자 모두 이 문서를 기준으로 작업하고, 각자의 세부 구현은 `SPRINT1_FEATURE3_BP_RESEARCH.md` / `SPRINT1_FEATURE4_ROADMAP_GENERATOR.md`에 기록한다. **이 계약이 바뀌면 두 담당자 모두에게 공유하고 이 문서를 갱신한다.**
 
 - 최종 수정일: 2026-07-13
-- 상태: v0.3 (리서치 캐싱 정책·API 키 분리 정책·HTTP 오케스트레이션 확정, OnboardingData 임시 스키마 추가. 담당자는 확정 사항에 이견 시 8절 변경 절차로 제기)
+- 상태: v0.4 (기능 3 검색 백엔드 변경 — Gemini grounding 무료 티어 불가 확인 → 다중 소스 실시간 API(논문 API 우선). LLM 의존 옵션화, 큐레이션 seed findings 병합 정책 추가. 스키마·시그니처 불변. 담당자는 확정 사항에 이견 시 8절 변경 절차로 제기)
 
 ---
 
@@ -77,7 +77,7 @@
 
 ### 2.1 역할 분담: 3번 = RAG의 R, 4번 = RAG의 G
 
-- **기능 3 = Retrieval**: 실시간 웹서치로 외부 컨텍스트를 조사·요약해 `ResearchContext`를 만든다. **생성·판단 없음.** 로드맵을 만들거나 task를 판단하지 않는다.
+- **기능 3 = Retrieval**: 실시간 외부 조회로 외부 컨텍스트를 조사·요약해 `ResearchContext`를 만든다. **생성·판단 없음.** 로드맵을 만들거나 task를 판단하지 않는다. (검색 백엔드는 v0.4에서 다중 소스 실시간 API로 변경 — 2.5절)
 - **기능 4 = Generation**: 검색하지 않는다. 목표 정의서 + `ResearchContext`만으로 Gemini API를 호출해 판정·생성한다.
 - 이 경계 덕분에 3번과 4번은 서로의 내부 구현(검색 쿼리, 프롬프트)을 몰라도 병렬 개발 가능하다 — 아래 4·5절 인터페이스만 지키면 된다.
 
@@ -136,6 +136,24 @@ tests/
 - 단, **동일 `goal_id` 재요청은 캐싱**하여 다시 웹서치하지 않고 이전 `ResearchContext`를 그대로 반환한다. 목표는 스프린트1 동안 갱신 주기 없이 goal_id 단위로 1회 조사 후 재사용한다(리서치 갱신 주기는 이후 스프린트에서 결정).
 - 캐시 키는 `goal_id`. 구현 위치·저장 방식(인메모리/파일/DB)은 기능 3 담당자 재량이며 `SPRINT1_FEATURE3_BP_RESEARCH.md`에 기록한다. `status="failed"` 결과는 캐싱하지 않는다(다음 요청에서 재시도 가능하도록).
 
+### 2.5 검색 백엔드 변경 — Gemini grounding → 다중 소스 실시간 API (v0.4에서 결정)
+
+> **§8 계약 변경 절차로 처리됨** (§6 기술 스택 변경). SPEC 정책(실시간 웹서치 유지·사전 corpus 기각)은 **불변** — 바뀐 것은 "실시간 조회를 어떤 도구로 하는가"뿐이다.
+
+- **기각 배경**: Gemini 내장 Google Search grounding은 무료 API 티어에서 사실상 사용 불가로 확인됨(발급 키에서 grounding·일반 호출 모두 404/429). grounding은 유료 티어(billing) 게이팅. 무료로 한도를 늘릴 실질적 방법 없음.
+- **채택**: 검색 백엔드를 **다중 소스 실시간 API**로 교체한다. 각 소스는 요청 시점에 외부를 실시간 조회하므로 SPEC 4.3 "실시간 웹서치 기반" 정의를 충족하고, "사전 구축 corpus 매칭"이 아니다.
+  - **스프린트1 범위(최소)**: 논문 API — **Semantic Scholar + arXiv** (완전 무료·안정, SPEC 4.3 "논문/연구" pillar). `source_type="research"`.
+  - **이후 확장(옵션)**: GitHub Search(`practice`), 범용 검색 API(Tavily 등, `trend`). 스프린트1에는 미포함.
+- **LLM 의존 제거**: 소스 API가 title/abstract/url/발행연도를 구조화된 형태로 주므로, 요약·구조화에 **LLM(Gemini)이 필수가 아니다.** 스프린트1 핵심 경로는 LLM 없이 동작(요약은 abstract 트림). LLM 요약은 유료/정상 키 확보 시 품질 향상용 **옵션**으로만 얹고, 실패 시 트림 요약으로 degrade. → 기능 3은 스프린트1에서 `GEMINI_API_KEY_RESEARCH` 없이도 동작한다(키는 옵션).
+- **불변**: `run_research(goal) -> ResearchContext` 시그니처와 `ResearchContext`/`Finding` 스키마(§4)는 그대로. 소비자(기능 4)는 이 변경의 영향을 받지 않는다. `search_queries`에는 사용한 소스 쿼리를 그대로 기록.
+
+### 2.6 큐레이션 seed findings 병합 (v0.4에서 결정)
+
+- 웹/논문 검색에 나오지 않는 **사람이 큐레이션한 소수의 근거**(예: 메일로 받은 사내 리포트)를 `Finding`으로 정리해 `ResearchContext.findings`에 **실시간 결과와 같은 스키마로 병합**할 수 있다.
+- **주 메커니즘은 실시간 조회**이며, seed는 보조다(별도 wiki/corpus-매칭 시스템을 만들지 않는다 — SPEC 4.3 corpus 기각 유지). seed는 소수로 제한한다.
+- seed도 `source_url`(출처)을 갖는다(SPEC 2.6 "출처 있는 경우만 인용"). 사내 문서라 공개 URL이 없으면 내부 식별자를 넣되, 기능 4가 사용자에게 그대로 노출하지 않도록 주의(리서치 레이어 비노출 — SPEC 4.3).
+- 저장 위치/형식은 기능 3 담당자 재량(예: `fixtures/seed_findings_*.json`).
+
 ## 3. 전체 흐름
 
 ```
@@ -144,8 +162,9 @@ tests/
         ▼
 [3번] BP 리서치 엔진 ── run_research()
    - 역할: RAG의 "R" (검색·조사만, 생성·판단 없음)
-   - 방식: Gemini API + Google Search grounding (실시간 웹서치, 사전 구축 벡터DB 아님)
+   - 방식: 다중 소스 실시간 API (스프린트1: 논문 API = Semantic Scholar + arXiv). 사전 구축 벡터DB/corpus 아님 (2.5절)
    - 쿼리: 목표 텍스트 + 조직 제약 / 조사 대상: AX 트렌드·논문·frontier 개인 AI 활용법
+   - + 소수 큐레이션 seed findings 병합 가능 (2.6절)
    - 목표 "단위"로 조사 — task 단위 아님 (task breakdown은 4번 역할)
         │  ResearchContext (4절)
         ▼
@@ -250,10 +269,10 @@ tests/
 |---|---|---|
 | 언어/스키마 | Python 3.11+, pydantic v2 | `contracts/`에 스키마 코드화 |
 | Foundation 모델 | **Gemini API** (3번·4번 공통) | 무료 티어 우선, 비용 발생 시 재검토 |
-| 3번 웹서치 | **Gemini 내장 Google Search grounding** | 별도 검색 API 키 불필요. grounding metadata에서 `source_url` 추출. 사전 구축 corpus 방식 기각(확정) |
+| 3번 검색 | ~~Gemini Google Search grounding~~ → **다중 소스 실시간 API** (스프린트1: Semantic Scholar + arXiv) | v0.4 변경(2.5절). grounding은 무료 티어 불가로 기각. 사전 구축 corpus 방식은 여전히 기각(확정). API별 응답에서 `source_url`·발행일 직접 추출 |
 | 4번 생성 | **Gemini structured output** (responseSchema로 JSON 강제) | Stage A·B 모두. fine-tuning은 스프린트1 범위 밖 (2.2절 기각 사유 참고) |
 | 통합 형태 | 같은 repo, 모듈 분리 | 별도 HTTP 서비스 기각 (2.3절) |
-| API 키 (기능 3) | `GEMINI_API_KEY_RESEARCH` | 기능 3(`research/`)이 **자기 키만** 읽는다. 기능 4 키를 참조하지 않는다 |
+| API 키 (기능 3) | `GEMINI_API_KEY_RESEARCH` (**옵션**, v0.4) | 스프린트1 핵심 경로는 LLM 불필요라 키 없이도 동작. 있으면 요약 품질 향상용으로만 사용(자기 키만, 교차 참조 금지). Semantic Scholar/arXiv는 키 불필요 |
 | API 키 (기능 4) | `GEMINI_API_KEY_ROADMAP` | 기능 4(`roadmap/`)가 **자기 키만** 읽는다. 기능 3 키를 참조하지 않는다 |
 
 **API 키 정책 (v0.3 확정).**
@@ -286,5 +305,6 @@ tests/
 
 | 날짜 | 변경 내용 |
 |---|---|
+| 2026-07-13 | v0.4 — 기능 3 검색 백엔드 변경(§8 절차): Gemini Google Search grounding이 무료 API 티어에서 사용 불가(404/429, grounding 유료 게이팅)로 확인 → **다중 소스 실시간 API**로 교체(스프린트1: Semantic Scholar + arXiv). SPEC 정책(실시간 유지·사전 corpus 기각)은 불변, 도구만 변경(§2.5, §6). LLM(Gemini) 요약을 **옵션화**(핵심 경로는 LLM 없이 동작, `GEMINI_API_KEY_RESEARCH` 옵션). **큐레이션 seed findings 병합** 정책 추가(§2.6). `run_research` 시그니처·`ResearchContext`/`Finding` 스키마 불변 |
 | 2026-07-13 | v0.3 — ① 리서치 캐싱 정책 확정: 실시간 웹서치 유지(사전 구축 corpus 기각 유지), 단 동일 `goal_id` 재요청은 캐싱해 재검색 안 함(2.4절) ② API 키 분리 정책 추가: `GEMINI_API_KEY_RESEARCH`/`GEMINI_API_KEY_ROADMAP` 환경변수 2개, 각 모듈 자기 키만 읽음, 하드코딩 금지(6절) ③ `OnboardingData` 임시 스키마 추가(1.1절, 기능 1 확정 전·기능 4 담당자 소유) ④ HTTP 오케스트레이션 명시: `POST /roadmap/generate`는 목표 정의서만 받고 내부에서 `run_research()`→`generate_roadmap()` 순차 호출, `ResearchContext` 비노출(2.4절) |
 | 2026-07-11 | v0.2 — 아키텍처 확정: ① 기능 4는 2단계(Stage A 판정·초안 / Stage B 구조화) 설계하되 스프린트1은 둘 다 Gemini, fine-tuning은 범위 밖(교체 슬롯만 유지) ② 같은 repo 모듈 분리(별도 서비스 기각) ③ 3번 웹서치는 Gemini Google Search grounding. ResearchContext에 `status`/`finding_id`/`source_type` 등 추가, RoadmapResult에 `week`/`research_status` 추가, 실패 계약·병렬 작업 프로토콜(7절)·변경 절차(8절) 신설 |

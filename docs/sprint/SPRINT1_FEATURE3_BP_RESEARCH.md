@@ -3,24 +3,25 @@
 > 공통 계약은 `SPRINT1_CONTRACT.md` 참고 (특히 2절 아키텍처 확정, 4절 ResearchContext 스키마, 7절 병렬 작업 프로토콜). 이 문서는 기능 3 담당자가 계약을 확인하고, 세부 구현 계획을 채워나가는 문서다. 스펙 근거는 `SPEC.md` 4.3.
 
 - 최종 수정일: 2026-07-13
-- 상태: 계약 v0.3 반영 (리서치 캐싱 정책 확정. 구현 계획 골격 확정, 세부는 담당자가 채움)
+- 상태: 계약 v0.4 반영 (검색 백엔드 = 다중 소스 실시간 API(논문 API), LLM 옵션화, seed 병합. 구현 완료)
 
 ---
 
 ## 1. 이 기능이 하는 일 (계약 요약)
 
 - **입력**: 목표 정의서 `GoalDefinition` (goal_text + org_constraints + candidate_tasks) — 계약 1절
-- **하는 일**: 목표 텍스트 + 조직 제약을 바탕으로 AX 트렌드/논문/frontier 개인 AI 활용법을 웹서치 → 요약·구조화. **RAG의 "R"만 담당.**
+- **하는 일**: 목표 텍스트 + 조직 제약을 바탕으로 논문/연구 등을 실시간 외부 API로 조회 → 요약·구조화(+큐레이션 seed 병합). **RAG의 "R"만 담당.**
 - **하지 않는 일**: 로드맵/task 생성, 적합성 판정, 사용자에게 결과 직접 노출 (전부 4번의 역할)
 - **출력**: `ResearchContext` — 계약 4절 스키마. 코드 경계는 `run_research(goal: GoalDefinition) -> ResearchContext` 함수 하나 (계약 2.3절)
 
-## 2. 확정 사항 (계약 v0.2에서 결정됨)
+## 2. 확정 사항
 
-- [x] 웹서치 구현 방식: **Gemini API + Google Search grounding** — 별도 검색 API 없이 검색+요약을 한 호출로. `source_url`은 grounding metadata에서 추출
-- [x] 요약 생성 모델: **Gemini API** (무료 티어 우선)
+- [x] ~~웹서치 구현 방식: Gemini API + Google Search grounding~~ → **v0.4에서 변경**: Gemini grounding은 무료 API 티어에서 사용 불가(404/429, grounding 유료 게이팅)로 확인 → **다중 소스 실시간 API**로 교체. **스프린트1 범위: Semantic Scholar + arXiv**(논문 API, 완전 무료·안정). `source_url`·발행일은 API 응답에서 직접 추출 (계약 v0.4 §2.5)
+- [x] ~~요약 생성 모델: Gemini API~~ → **v0.4에서 옵션화**: 소스 API가 abstract를 구조화 제공하므로 LLM 불필요. 핵심 경로는 LLM 없이 동작(요약=abstract 트림), Gemini 요약은 정상 키 확보 시 품질 향상 옵션(실패 시 트림으로 degrade). `GEMINI_API_KEY_RESEARCH`는 옵션
+- [x] 큐레이션 seed findings 병합: 웹/검색에 없는 소수 근거(사내 리포트 등)를 `Finding`으로 정리해 병합(주 메커니즘은 실시간, 별도 wiki 미구축 — 계약 v0.4 §2.6)
 - [x] 통합 형태: 같은 repo `research/` 패키지, 별도 서비스 아님
 - [x] 실패 계약: 검색 실패 시 예외 대신 `status="failed"` + 빈 `findings` 반환 (계약 4절)
-- [x] 픽스처 책임: `fixtures/research_context_goal_001.json` 작성은 3번 담당자, 검수는 4번 담당자 (계약 7절) — **스프린트 첫 작업으로 우선 처리**
+- [x] 픽스처 책임: `fixtures/research_context_goal_001.json` 작성은 3번 담당자, 검수는 4번 담당자 (계약 7절)
 
 ## 3. 담당자 확인·결정 사항 (남은 체크리스트)
 
@@ -37,31 +38,35 @@
 
 | 파일 | 역할 |
 |---|---|
-| `app/research/service.py` | `run_research()` 진입점. 캐시조회→쿼리빌드→(관점별)검색+구조화→필터·중복제거→status판정→캐시저장. **실패 계약**(예외 미전파, failed+빈 findings)을 여기서 보장 |
-| `app/research/query_builder.py` | `goal_text`+`org_constraints`로 검색 관점 2~4개 생성(템플릿 기반: 도구 특화/방법론·연구/실패 요인/연동 시스템). 추후 LLM 쿼리 생성으로 승격 가능 |
-| `app/research/gemini_client.py` | `grounded_search()`(google_search grounding→텍스트+실제 소스 추출) / `structure_findings()`(response_schema로 findings JSON 강제, 도구 없음). **URL/제목은 모델이 만들지 않고 grounding 실제 소스에서 매핑** |
-| `app/research/filters.py` | 소스 신뢰도 필터 + metric 수치 검증(`sanitize_metric`) |
+| `app/research/service.py` | `run_research()` 진입점. 캐시조회→쿼리빌드→소스 어댑터 실시간 조회→seed 병합→필터·중복제거→status판정→캐시저장. **실패 계약**(예외 미전파, failed+빈 findings)을 여기서 보장 |
+| `app/research/query_builder.py` | `goal_text`+`org_constraints`로 검색 쿼리 2~4개 생성(도구·연동 시스템 + AX 키워드). 추후 LLM 키워드 추출로 승격 가능 |
+| `app/research/sources/` | 소스 어댑터. `semantic_scholar.py`·`arxiv.py` — 요청 시점 실시간 HTTP 조회로 논문 title/abstract/url/연도 수집(키 불필요). 어댑터별 예외는 상위에서 흡수 |
+| `app/research/seed.py` | 큐레이션 seed findings 로더(`fixtures/seed_findings_*.json`). 실시간 결과와 같은 스키마로 병합 (계약 §2.6) |
+| `app/research/filters.py` | 소스 신뢰도 필터(http url) + metric 수치 검증(`sanitize_metric`) + abstract 요약 트림 |
 | `app/research/cache.py` | `goal_id → ResearchContext` 인메모리 캐시 (계약 §2.4) |
 
-- **모델**: `settings.gemini_research_model`(env `GEMINI_RESEARCH_MODEL`, 기본 `gemini-flash-latest`). 계정/티어별 사용 가능 모델 차이 대응 — 코드 수정 없이 env로 교체.
-- **2단계 호출 이유**: Gemini는 grounding 도구와 structured output(responseSchema)을 한 호출에 함께 쓰기 어렵다. 그래서 ① 그라운딩 검색 → ② 무도구 구조화 2호출로 분리(관점당 2호출).
-- **테스트**: `tests/test_contracts.py` — 스키마 검증 + `failed` 경로 + 캐싱 + 방어(범위 밖 인덱스/수치 없는 metric). 네트워크 미사용(Gemini 호출부 monkeypatch). 실제 API 스모크는 `scripts/smoke_research.py`(수동).
+- **LLM 불필요**: 소스 API가 구조화 데이터를 주므로 핵심 경로에 Gemini 호출이 없다 → 무료 티어 쿼터 문제와 무관. (Gemini grounding 기반 이전 구현은 v0.4에서 제거)
+- **요약**: `summary`는 abstract를 2~3문장으로 트림(스프린트1). "원문 그대로 X"(SPEC 4.3) 완전 충족은 LLM 요약이 필요 → 정상 키 확보 시 옵션으로 추가(오픈 이슈).
+- **published_date**: 이제 API가 발행연도를 주므로 채워진다(이전 grounding에선 null).
+- **테스트**: `tests/test_contracts.py` — 스키마 검증 + `failed` 경로 + 캐싱 + seed 병합 + 중복제거. 네트워크 미사용(소스 어댑터 monkeypatch). 실제 API 스모크는 `scripts/smoke_research.py`(수동, **무료 API라 상시 실행 가능**).
 
-### ⚠️ 스모크 테스트 상태 (실제 API)
+### ✅ 스모크 테스트 상태
 
-- **실패 계약은 실제 API로 검증됨**: 발급 키가 신규 계정 제약으로 `gemini-2.5-*` 계열은 404, 그 외 모델은 429(RESOURCE_EXHAUSTED, 계정 쿼터 소진 상태) — 이 에러들이 모두 `status="failed"`+빈 findings로 안전하게 처리됨(예외 미전파). 스키마 라운드트립도 통과.
-- **성공(ok) 스모크는 보류**: 현재 발급 키가 plain 호출조차 429라 근거가 있는 `ok` 결과를 실제로 받지 못했다. 이는 코드 문제가 아니라 **계정 쿼터/모델 접근 이슈**다. 키 쿼터 회복 또는 grounding 가능한 모델 확보(필요 시 billing) 후 `uv run python scripts/smoke_research.py`로 재확인 예정. 자세한 확인 절차는 `docs/setup/API_KEY_SETUP.md §5`.
+- **v0.4 전환 후 실제 API 스모크 통과 대상**: Semantic Scholar/arXiv는 무료·키불필요라 `run_research(goal_001)`을 실제로 호출해 `ok`/`partial` 결과를 받을 수 있다. (이전 Gemini grounding 구현은 무료 키에서 404/429로 성공 스모크가 막혔었음 — 그 문제가 이번 전환으로 해소)
+- 실패 계약은 어댑터가 모두 실패하는 경우로 검증(네트워크 차단/타임아웃 시 `failed`).
 
-## 5. 오픈 이슈 (SPEC.md 4.3에서 이관)
+## 5. 오픈 이슈
 
-- ~~리서치 갱신 주기 (캐싱 정책과 함께 결정)~~ → 계약 v0.3 2.4절에서 확정: 실시간 웹서치 + `goal_id` 단위 캐싱(스프린트1은 갱신 주기 없이 1회 조사 후 재사용). 갱신 주기 자동화는 이후 스프린트로 이관
-- 소스 신뢰도 기준
-- 캐시 저장 방식: 스프린트1은 프로세스 인메모리 캐시(`goal_id → ResearchContext`)로 시작, 필요 시 이후 파일/DB로 승격 (구현 시 확정)
+- ~~리서치 갱신 주기~~ → 계약 v0.3 §2.4 확정: `goal_id` 단위 캐싱, 갱신 주기 자동화는 이후 스프린트
+- LLM 요약 품질(현재 abstract 트림) — 정상 Gemini 키/유료 티어 확보 시 요약 단계 옵션 추가
+- 소스 확장: GitHub(`practice`)·범용 검색(`trend`) 어댑터 추가(계약 §2.5 이후 확장)
+- 한글 목표 → 영문 논문 API 쿼리 키워드 품질(현재 도구·시스템·AX 키워드 조합, LLM 키워드 추출로 승격 가능)
 
 ## 6. 변경 이력
 
 | 날짜 | 변경 내용 |
 |---|---|
+| 2026-07-13 | v0.4 pivot — Gemini grounding 무료 티어 불가(404/429) 확인 → 검색 백엔드를 **다중 소스 실시간 API(Semantic Scholar + arXiv)**로 교체, LLM 요약 옵션화(핵심 경로 LLM 불필요), 큐레이션 seed findings 병합 추가. `gemini_client.py` 제거, `research/sources/`·`seed.py` 신설. 스키마·시그니처 불변 |
 | 2026-07-13 | 기능 3 구현 완료 — `contracts/goal.py`·`research.py`, `fixtures/goal_001.json`·`research_context_goal_001.json`, `research/`(service·query_builder·gemini_client·filters·cache), `tests/test_contracts.py`(20 passed), `scripts/smoke_research.py`. 3절 체크리스트 전부 확정. 실제 API 실패 계약 검증됨, ok 스모크는 계정 쿼터 이슈로 보류(§4) |
 | 2026-07-13 | 계약 v0.3 반영 — 리서치 캐싱 정책 확정(실시간 웹서치 + `goal_id` 단위 캐싱, `status="failed"` 미캐싱). 3절 캐싱 체크리스트 확정 처리, 5절 오픈 이슈에서 갱신 주기 이슈 종료 |
 | 2026-07-11 | 계약 v0.2 반영 — 웹서치 방식(Gemini grounding)·통합 형태(모듈)·실패 계약 확정, 구현 계획 골격 추가 |
