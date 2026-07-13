@@ -24,20 +24,33 @@
 
 ## 3. 담당자 확인·결정 사항 (남은 체크리스트)
 
-- [ ] `ResearchContext` 스키마 최종 검토 — 필드 추가/변경 필요 시 계약 8절 절차 (CONTRACT 먼저 갱신 → 4번 담당자 확인)
+- [x] `ResearchContext` 스키마 최종 검토 — 계약 §4 그대로 `app/contracts/research.py`(`ResearchContext`/`Finding`)로 코드화. 변경 없음(8절 절차 불필요)
 - [x] 리서치 실행 시점: **실시간 웹서치 유지 + 동일 `goal_id` 재요청은 캐싱** (계약 v0.3 2.4절 확정). 캐시 키=`goal_id`, `status="failed"`는 캐싱하지 않음. 저장 방식은 담당자 재량(§4-6)
-- [ ] 소스 신뢰도 기준: grounding이 반환한 소스 중 무엇을 버릴지 (예: 개인 블로그 스팸, 광고성 페이지) — SPEC.md 2.6 "출처 있는 경우만 인용" 준수
-- [ ] `metric_snippet` 수치의 출처 검증 방식: grounding 인용 구간과 수치가 실제로 일치하는지 확인 로직
-- [ ] `source_type`(trend/research/practice) 분류 기준
-- [ ] findings 3~8건을 못 채웠을 때 `partial` 판정 기준 (예: 2건 이하면 partial)
+- [x] 소스 신뢰도 기준: 스프린트1은 경량 필터 — grounding metadata의 **실제 http(s) URL을 가진 소스만** 통과 + URL 중복 제거(`app/research/filters.py`). 도메인 블록리스트 등 고도화는 오픈 이슈로 유지
+- [x] `metric_snippet` 수치 검증: (1) 구조화 프롬프트에서 "출처가 분명한 수치만, 없으면 null, 지어내지 말 것" 강제 + (2) 코드에서 **숫자가 없는 문자열은 metric으로 인정하지 않고 null 처리**(`sanitize_metric`). grounding 인용 구간 정밀 대조는 오픈 이슈
+- [x] `source_type` 분류: 구조화 단계에서 모델이 `trend`(트렌드/일반) / `research`(논문·연구·리포트) / `practice`(개인·현장 활용법)로 분류, `Literal`로 스키마 강제
+- [x] `partial` 판정 기준: findings **0건→failed, 1~2건→partial, 3건 이상→ok** (`OK_THRESHOLD=3`, 계약 §4 "목표 3~8건" 기준)
 
-## 4. 구현 계획 (골격 — 담당자가 세부 채움)
+## 4. 구현 결과 (완료)
 
-1. **쿼리 빌드**: `goal_text` + `org_constraints`(허용 도구, 보안 수준)로 검색 관점 2~4개 생성 (예: 도구 특화 사례 / 방법론·연구 / 실패 요인). 사용한 쿼리는 `search_queries`에 기록
-2. **grounding 호출**: 관점별 Gemini + google_search 호출 → 응답의 grounding metadata에서 소스 URL·제목 수집
-3. **findings 구조화**: 소스별 2~3문장 요약, `relevant_method`, `metric_snippet`(수치+출처 확인된 것만) 채워 `finding_id` 부여
-4. **필터링·검증**: 소스 신뢰도 필터 → pydantic 스키마 검증 → `status` 판정(ok/partial/failed)
-5. **테스트**: `tests/test_contracts.py`에 스키마 검증 테스트, `failed` 경로 테스트 포함
+디렉토리 소유: `app/research/` (기능 3 전용), 스키마는 `app/contracts/` (공동). 진입점은 `run_research(goal) -> ResearchContext` 하나.
+
+| 파일 | 역할 |
+|---|---|
+| `app/research/service.py` | `run_research()` 진입점. 캐시조회→쿼리빌드→(관점별)검색+구조화→필터·중복제거→status판정→캐시저장. **실패 계약**(예외 미전파, failed+빈 findings)을 여기서 보장 |
+| `app/research/query_builder.py` | `goal_text`+`org_constraints`로 검색 관점 2~4개 생성(템플릿 기반: 도구 특화/방법론·연구/실패 요인/연동 시스템). 추후 LLM 쿼리 생성으로 승격 가능 |
+| `app/research/gemini_client.py` | `grounded_search()`(google_search grounding→텍스트+실제 소스 추출) / `structure_findings()`(response_schema로 findings JSON 강제, 도구 없음). **URL/제목은 모델이 만들지 않고 grounding 실제 소스에서 매핑** |
+| `app/research/filters.py` | 소스 신뢰도 필터 + metric 수치 검증(`sanitize_metric`) |
+| `app/research/cache.py` | `goal_id → ResearchContext` 인메모리 캐시 (계약 §2.4) |
+
+- **모델**: `settings.gemini_research_model`(env `GEMINI_RESEARCH_MODEL`, 기본 `gemini-flash-latest`). 계정/티어별 사용 가능 모델 차이 대응 — 코드 수정 없이 env로 교체.
+- **2단계 호출 이유**: Gemini는 grounding 도구와 structured output(responseSchema)을 한 호출에 함께 쓰기 어렵다. 그래서 ① 그라운딩 검색 → ② 무도구 구조화 2호출로 분리(관점당 2호출).
+- **테스트**: `tests/test_contracts.py` — 스키마 검증 + `failed` 경로 + 캐싱 + 방어(범위 밖 인덱스/수치 없는 metric). 네트워크 미사용(Gemini 호출부 monkeypatch). 실제 API 스모크는 `scripts/smoke_research.py`(수동).
+
+### ⚠️ 스모크 테스트 상태 (실제 API)
+
+- **실패 계약은 실제 API로 검증됨**: 발급 키가 신규 계정 제약으로 `gemini-2.5-*` 계열은 404, 그 외 모델은 429(RESOURCE_EXHAUSTED, 계정 쿼터 소진 상태) — 이 에러들이 모두 `status="failed"`+빈 findings로 안전하게 처리됨(예외 미전파). 스키마 라운드트립도 통과.
+- **성공(ok) 스모크는 보류**: 현재 발급 키가 plain 호출조차 429라 근거가 있는 `ok` 결과를 실제로 받지 못했다. 이는 코드 문제가 아니라 **계정 쿼터/모델 접근 이슈**다. 키 쿼터 회복 또는 grounding 가능한 모델 확보(필요 시 billing) 후 `uv run python scripts/smoke_research.py`로 재확인 예정. 자세한 확인 절차는 `docs/setup/API_KEY_SETUP.md §5`.
 
 ## 5. 오픈 이슈 (SPEC.md 4.3에서 이관)
 
@@ -49,5 +62,6 @@
 
 | 날짜 | 변경 내용 |
 |---|---|
+| 2026-07-13 | 기능 3 구현 완료 — `contracts/goal.py`·`research.py`, `fixtures/goal_001.json`·`research_context_goal_001.json`, `research/`(service·query_builder·gemini_client·filters·cache), `tests/test_contracts.py`(20 passed), `scripts/smoke_research.py`. 3절 체크리스트 전부 확정. 실제 API 실패 계약 검증됨, ok 스모크는 계정 쿼터 이슈로 보류(§4) |
 | 2026-07-13 | 계약 v0.3 반영 — 리서치 캐싱 정책 확정(실시간 웹서치 + `goal_id` 단위 캐싱, `status="failed"` 미캐싱). 3절 캐싱 체크리스트 확정 처리, 5절 오픈 이슈에서 갱신 주기 이슈 종료 |
 | 2026-07-11 | 계약 v0.2 반영 — 웹서치 방식(Gemini grounding)·통합 형태(모듈)·실패 계약 확정, 구현 계획 골격 추가 |

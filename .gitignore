@@ -218,6 +218,10 @@ pyrightconfig.json
 pyvenv.cfg
 pip-selfcheck.json
 
+# 위 venv 템플릿의 [Ss]cripts 패턴이 프로젝트 스크립트 디렉토리까지 무시하므로 예외 처리
+!backend/scripts/
+!backend/scripts/**
+
 ### Windows ###
 # Windows thumbnail cache files
 Thumbs.db

@@ -1,0 +1,14 @@
+{
+  "goal_id": "goal_001",
+  "goal_text": "Copilot이 ERP에 연동된 사내 환경에서, 팀 LLM 위키를 만들고 보고서 작성을 자동화한다",
+  "org_constraints": {
+    "allowed_tools": ["Copilot"],
+    "integrated_systems": ["ERP"],
+    "external_ai_allowed": false,
+    "security_level": "high"
+  },
+  "candidate_tasks_from_onboarding": [
+    "월간 보고서 작성",
+    "신규 팀원 온보딩 설명"
+  ]
+}

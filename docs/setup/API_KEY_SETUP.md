@@ -149,6 +149,13 @@ resp = client.models.generate_content(
 3. **본인 사용량/한도**: <https://aistudio.google.com/rate-limit>
 4. 만약 무료 API grounding이 불가하면 기능 3 담당자에게 공유할 것 — 캐싱 정책(§2.4)이 있어도 호출 자체가 막히면 실검증이 안 되므로, 결제 등록 여부를 팀에서 결정해야 한다.
 
+> **📌 2026-07-13 실제 관측(기능 3 스모크 시도):** 발급한 신규 키에서
+> `gemini-2.5-flash` / `gemini-2.5-flash-lite`는 `404 (no longer available to new users)`,
+> 그 외 모델(`gemini-2.0-flash`, `gemini-flash-latest`)은 **plain 호출조차 `429 RESOURCE_EXHAUSTED`**(계정 쿼터 소진) 상태였다.
+> 즉 이 키로는 아직 성공 호출 자체가 안 된다. 실제 사용 전 **본인 쿼터/티어를 <https://ai.dev/rate-limit>에서 확인**하고,
+> 필요 시 결제(유료 티어) 등록 또는 쿼터 회복을 기다려야 한다. 모델은 코드 수정 없이 `.env`의
+> `GEMINI_RESEARCH_MODEL`로 교체할 수 있다(기본값 `gemini-flash-latest`).
+
 ---
 
 ## 참고 출처
