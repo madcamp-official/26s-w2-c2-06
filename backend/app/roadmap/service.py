@@ -28,7 +28,7 @@ def generate_roadmap(
 
     client = get_client()
     draft = run_stage_a(client, goal, research, onboarding)
-    result = run_stage_b(client, draft, goal, research.status, onboarding)
+    result = run_stage_b(client, draft, goal, research, onboarding)
 
     cache.set(goal.goal_id, result)
     return result

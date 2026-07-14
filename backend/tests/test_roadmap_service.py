@@ -43,9 +43,9 @@ def test_generate_roadmap_orchestrates_stage_a_then_stage_b(monkeypatch):
         calls.append(("stage_a", client, g.goal_id, r.goal_id, o.team_size))
         return fake_draft
 
-    def fake_run_stage_b(client, draft, g, research_status, o):
+    def fake_run_stage_b(client, draft, g, r, o):
         calls.append(
-            ("stage_b", client, draft is fake_draft, g.goal_id, research_status, o.team_size)
+            ("stage_b", client, draft is fake_draft, g.goal_id, r.status, o.team_size)
         )
         return fake_result
 
@@ -103,7 +103,7 @@ def test_generate_roadmap_cache_is_keyed_by_goal_id(monkeypatch):
     monkeypatch.setattr(
         service_module,
         "run_stage_b",
-        lambda client, draft, g, status, o: RoadmapResult(goal_id=g.goal_id, research_status=status),
+        lambda client, draft, g, r, o: RoadmapResult(goal_id=g.goal_id, research_status=r.status),
     )
 
     result_a = generate_roadmap(goal_a, research, onboarding)
