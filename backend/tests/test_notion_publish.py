@@ -62,7 +62,7 @@ def test_publish_roadmap_uses_default_page_and_returns_dashboard_url(monkeypatch
     _patch_connection(monkeypatch)
     captured = {}
 
-    def fake_sync_roadmap(goal, roadmap, onboarding, account_id, parent_page_id, session, headers):
+    def fake_sync_roadmap(goal, roadmap, onboarding, account_id, parent_page_id, session, headers, research=None):
         captured["parent_page_id"] = parent_page_id
         captured["account_id"] = account_id
         captured["headers"] = headers
@@ -83,7 +83,7 @@ def test_publish_roadmap_prefers_explicit_parent_page_id(monkeypatch):
     _patch_connection(monkeypatch)
     captured = {}
 
-    def fake_sync_roadmap(goal, roadmap, onboarding, account_id, parent_page_id, session, headers):
+    def fake_sync_roadmap(goal, roadmap, onboarding, account_id, parent_page_id, session, headers, research=None):
         captured["parent_page_id"] = parent_page_id
         return _workspace()
 
@@ -134,7 +134,7 @@ def test_publish_report_raises_when_roadmap_missing():
 def test_publish_report_delegates_to_publish_roadmap(monkeypatch):
     captured = {}
 
-    def fake_publish_roadmap(goal, roadmap, onboarding, account_id, parent_page_id=None):
+    def fake_publish_roadmap(goal, roadmap, onboarding, account_id, parent_page_id=None, research=None):
         captured["args"] = (goal, roadmap, onboarding, account_id, parent_page_id)
         return {"url": "https://notion.so/dash-page-id", "page_id": "dash-page-id"}
 

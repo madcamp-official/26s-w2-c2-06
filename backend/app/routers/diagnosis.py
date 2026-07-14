@@ -49,6 +49,7 @@ def diagnose(onboarding: OnboardingData) -> DiagnosisResult:
 
 @router.post("/publish-report", response_model=PublishReportResponse)
 def publish(payload: PublishReportRequest) -> PublishReportResponse:
+    research = run_research(payload.goal) if payload.roadmap is not None else None
     result = publish_report(
         goal=payload.goal,
         onboarding=payload.onboarding,
@@ -56,6 +57,7 @@ def publish(payload: PublishReportRequest) -> PublishReportResponse:
         diagnosis=payload.diagnosis,
         roadmap=payload.roadmap,
         parent_page_id=payload.parent_page_id,
+        research=research,
     )
     return PublishReportResponse(notion_url=result["url"], page_id=result["page_id"])
 
@@ -72,5 +74,6 @@ def generate_and_publish(payload: GenerateAndPublishRequest) -> PublishReportRes
         diagnosis=diag.maturity,
         roadmap=roadmap,
         parent_page_id=payload.parent_page_id,
+        research=research,
     )
     return PublishReportResponse(notion_url=result["url"], page_id=result["page_id"])

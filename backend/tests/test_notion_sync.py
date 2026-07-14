@@ -111,6 +111,7 @@ def _patch_notion_api(monkeypatch):
 
     def fake_create_database_row(data_source_id, properties, headers, blocks=None):
         calls["create_database_row"].append(data_source_id)
+        calls.setdefault("blocks", []).append(blocks)
         return {"id": counter.next("row"), "url": "https://notion.so/row"}
 
     def fake_update_page_properties(page_id, properties, headers):
@@ -153,3 +154,39 @@ def test_sync_roadmap_reuses_workspace_and_upserts_rows_on_second_call(session, 
     # 두 번째 호출은 같은 work_item_id/task_id/member_id라 새로 만들지 않고 갱신한다
     assert len(calls["create_database_row"]) == 3
     assert len(calls["update_page_properties"]) == 3
+
+
+def test_sync_roadmap_renders_source_citation_links_in_task_page_when_research_given(session, monkeypatch):
+    from app.contracts.research import Finding, ResearchContext
+
+    calls = _patch_notion_api(monkeypatch)
+
+    roadmap = _roadmap()
+    roadmap.tasks[0].source_refs = ["F1"]
+    research = ResearchContext(
+        goal_id="goal_001",
+        retrieved_at="2026-07-14T00:00:00Z",
+        status=ResearchStatus.OK,
+        findings=[
+            Finding(
+                finding_id="F1",
+                source_title="사내 리포트",
+                source_url="https://example.com/report",
+                source_type="research",
+                summary="요약문",
+                relevant_method="사례 참고",
+            )
+        ],
+    )
+
+    sync_module.sync_roadmap(_goal(), roadmap, _onboarding(), "acc-1", "parent-page", session, {}, research)
+
+    # create_database_row 호출 순서: 팀원 -> Opportunity Map -> Roadmap(task) 순이라 마지막이 task 블록
+    task_blocks = calls["blocks"][-1]
+    rich_text_spans = [
+        span
+        for block in task_blocks
+        if block["type"] == "bulleted_list_item"
+        for span in block["bulleted_list_item"]["rich_text"]
+    ]
+    assert any(span["text"].get("link", {}).get("url") == "https://example.com/report" for span in rich_text_spans)

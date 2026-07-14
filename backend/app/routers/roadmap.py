@@ -50,8 +50,16 @@ def generate(payload: GenerateRoadmapRequest) -> RoadmapResult:
 
 @router.post("/publish", response_model=PublishRoadmapResponse)
 def publish(payload: PublishRoadmapRequest) -> PublishRoadmapResponse:
+    # 리서치 레이어는 API에 비노출(계약 §2.4) — 인용 링크 렌더링을 위해 서버 내부에서만 재조회한다.
+    # goal_id 캐싱(research/cache.py) 덕분에 이미 생성된 로드맵이면 재검색 비용이 거의 없다.
+    research = run_research(payload.goal)
     result = publish_roadmap(
-        payload.goal, payload.roadmap, payload.onboarding, payload.account_id, payload.parent_page_id
+        payload.goal,
+        payload.roadmap,
+        payload.onboarding,
+        payload.account_id,
+        payload.parent_page_id,
+        research,
     )
     return PublishRoadmapResponse(notion_url=result["url"], page_id=result["page_id"])
 
@@ -61,7 +69,7 @@ def generate_and_publish(payload: GenerateAndPublishRequest) -> PublishRoadmapRe
     research = run_research(payload.goal)
     roadmap = generate_roadmap(payload.goal, research, payload.onboarding)
     result = publish_roadmap(
-        payload.goal, roadmap, payload.onboarding, payload.account_id, payload.parent_page_id
+        payload.goal, roadmap, payload.onboarding, payload.account_id, payload.parent_page_id, research
     )
     return PublishRoadmapResponse(notion_url=result["url"], page_id=result["page_id"])
 

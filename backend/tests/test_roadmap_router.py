@@ -50,13 +50,18 @@ def test_generate_endpoint_calls_run_research_and_generate_roadmap(monkeypatch):
 
 def test_publish_endpoint_calls_publish_roadmap_and_returns_notion_url_and_page_id(monkeypatch):
     captured = {}
+    fake_research = ResearchContext(
+        goal_id="goal_001", retrieved_at="2026-07-13T00:00:00Z", status=ResearchStatus.OK, findings=[]
+    )
 
-    def fake_publish_roadmap(goal, roadmap, onboarding, account_id, parent_page_id=None):
+    def fake_publish_roadmap(goal, roadmap, onboarding, account_id, parent_page_id=None, research=None):
         captured["goal_id"] = goal.goal_id
         captured["onboarding_team_size"] = onboarding.team_size
         captured["account_id"] = account_id
+        captured["research"] = research
         return {"url": "https://notion.so/main", "page_id": "page-123"}
 
+    monkeypatch.setattr(roadmap_router_module, "run_research", lambda goal: fake_research)
     monkeypatch.setattr(roadmap_router_module, "publish_roadmap", fake_publish_roadmap)
 
     client = TestClient(app)
@@ -74,6 +79,7 @@ def test_publish_endpoint_calls_publish_roadmap_and_returns_notion_url_and_page_
     assert response.json() == {"notion_url": "https://notion.so/main", "page_id": "page-123"}
     assert captured["goal_id"] == "goal_001"
     assert captured["onboarding_team_size"] == _load("onboarding_001.json")["team_size"]
+    assert captured["research"] is fake_research
 
 
 def test_generate_and_publish_endpoint_calls_run_research_once_and_returns_notion_url(monkeypatch):
@@ -90,7 +96,7 @@ def test_generate_and_publish_endpoint_calls_run_research_once_and_returns_notio
         captured["generate_research"] = research
         return RoadmapResult(goal_id=goal.goal_id, research_status=ResearchStatus.OK)
 
-    def fake_publish_roadmap(goal, roadmap, onboarding, account_id, parent_page_id=None):
+    def fake_publish_roadmap(goal, roadmap, onboarding, account_id, parent_page_id=None, research=None):
         captured["publish_called"] = True
         return {"url": "https://notion.so/main", "page_id": "page-123"}
 
