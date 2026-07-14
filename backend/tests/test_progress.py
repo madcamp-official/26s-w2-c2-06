@@ -1,7 +1,7 @@
 import pytest
 
 import app.notion.progress as progress_module
-from app.notion.tracking_repository import PublishedRoadmapRecord, TrackedTask
+from app.notion.tracking_repository import WorkspaceRecord
 
 
 class _FakeSession:
@@ -14,79 +14,81 @@ class _FakeConnection:
         self.access_token = access_token
 
 
-def _record(tasks: list[TrackedTask], stats_block_id: str | None = "stats-1") -> PublishedRoadmapRecord:
-    return PublishedRoadmapRecord(
-        page_id="page-1", account_id="acc-1", stats_block_id=stats_block_id, tasks=tasks
+def _workspace() -> WorkspaceRecord:
+    return WorkspaceRecord(
+        account_id="acc-1",
+        team_database_id="team-db",
+        team_data_source_id="team-ds",
+        opportunity_database_id="opp-db",
+        opportunity_data_source_id="opp-ds",
+        roadmap_database_id="roadmap-db",
+        roadmap_data_source_id="roadmap-ds",
+        dashboard_page_id="dash-page",
+        dashboard_url="https://notion.so/dash-page",
+        discovered_count_block_id="discovered-block",
+        applied_count_block_id="applied-block",
     )
 
 
-def test_refresh_progress_counts_checked_tasks_and_updates_summary(monkeypatch):
-    tasks = [
-        TrackedTask("task_001", "온보딩 정리", "block-1"),
-        TrackedTask("task_002", "보고서 자동화", "block-2"),
-    ]
+def _work_item_row(fitness: str) -> dict:
+    return {"properties": {"적합성": {"select": {"name": fitness} if fitness else None}}}
+
+
+def _task_row(baseline: float | None, current: float | None) -> dict:
+    return {"properties": {"기존값": {"number": baseline}, "현재값": {"number": current}}}
+
+
+def _patch_common(monkeypatch, work_items, tasks):
     monkeypatch.setattr(progress_module, "get_session", lambda: _FakeSession())
+    monkeypatch.setattr(progress_module, "get_workspace", lambda session, account_id: _workspace())
     monkeypatch.setattr(
-        progress_module, "get_published_roadmap", lambda session, page_id: _record(tasks)
+        progress_module, "get_connection", lambda session, account_id: _FakeConnection()
     )
-    monkeypatch.setattr(progress_module, "get_connection", lambda session, account_id: _FakeConnection())
 
-    block_states = {"block-1": True, "block-2": False}
+    def fake_query_data_source(data_source_id, headers):
+        if data_source_id == "opp-ds":
+            return work_items
+        if data_source_id == "roadmap-ds":
+            return tasks
+        raise AssertionError(f"unexpected data_source_id: {data_source_id}")
+
+    monkeypatch.setattr(progress_module, "query_data_source", fake_query_data_source)
+
+
+def test_refresh_dashboard_stats_counts_discovered_and_applied(monkeypatch):
+    work_items = [_work_item_row("적합"), _work_item_row("부분 적합"), _work_item_row("부적합")]
+    tasks = [_task_row(180, 30), _task_row(60, 60), _task_row(None, None)]
+    _patch_common(monkeypatch, work_items, tasks)
+
+    captured = []
     monkeypatch.setattr(
         progress_module,
-        "get_block",
-        lambda block_id, headers: {"to_do": {"checked": block_states[block_id]}},
+        "update_callout_text",
+        lambda block_id, content, headers: captured.append((block_id, content)),
     )
 
-    captured = {}
+    result = progress_module.refresh_dashboard_stats("acc-1")
 
-    def fake_update_callout_text(block_id, content, headers):
-        captured["block_id"] = block_id
-        captured["content"] = content
-
-    monkeypatch.setattr(progress_module, "update_callout_text", fake_update_callout_text)
-
-    result = progress_module.refresh_progress("page-1")
-
-    assert result == {"completed": 1, "total": 2, "completed_task_titles": ["온보딩 정리"]}
-    assert captured["block_id"] == "stats-1"
-    assert "완료 1/2" in captured["content"]
+    # 적합/부분 적합만 "발견"으로 세고 부적합은 제외
+    assert result == {"discovered": 2, "total_work_items": 3, "applied": 1, "total_tasks": 3}
+    assert captured[0][0] == "discovered-block"
+    assert "발견한 AI Opportunity 수: 2건" in captured[0][1]
+    assert captured[1][0] == "applied-block"
+    assert "AX 적용한 업무 수: 1건" in captured[1][1]
 
 
-def test_refresh_progress_skips_summary_update_when_no_stats_block(monkeypatch):
-    tasks = [TrackedTask("task_001", "t", "block-1")]
+def test_refresh_dashboard_stats_raises_when_workspace_missing(monkeypatch):
     monkeypatch.setattr(progress_module, "get_session", lambda: _FakeSession())
-    monkeypatch.setattr(
-        progress_module,
-        "get_published_roadmap",
-        lambda session, page_id: _record(tasks, stats_block_id=None),
-    )
-    monkeypatch.setattr(progress_module, "get_connection", lambda session, account_id: _FakeConnection())
-    monkeypatch.setattr(progress_module, "get_block", lambda block_id, headers: {"to_do": {"checked": True}})
-
-    def fail_if_called(*args, **kwargs):
-        raise AssertionError("stats_block_id가 없으면 update_callout_text를 호출하면 안 됨")
-
-    monkeypatch.setattr(progress_module, "update_callout_text", fail_if_called)
-
-    result = progress_module.refresh_progress("page-1")
-    assert result["completed"] == 1
-
-
-def test_refresh_progress_raises_when_page_not_found(monkeypatch):
-    monkeypatch.setattr(progress_module, "get_session", lambda: _FakeSession())
-    monkeypatch.setattr(progress_module, "get_published_roadmap", lambda session, page_id: None)
+    monkeypatch.setattr(progress_module, "get_workspace", lambda session, account_id: None)
 
     with pytest.raises(ValueError):
-        progress_module.refresh_progress("no-such-page")
+        progress_module.refresh_dashboard_stats("no-such-account")
 
 
-def test_refresh_progress_raises_when_connection_missing(monkeypatch):
+def test_refresh_dashboard_stats_raises_when_connection_missing(monkeypatch):
     monkeypatch.setattr(progress_module, "get_session", lambda: _FakeSession())
-    monkeypatch.setattr(
-        progress_module, "get_published_roadmap", lambda session, page_id: _record([])
-    )
+    monkeypatch.setattr(progress_module, "get_workspace", lambda session, account_id: _workspace())
     monkeypatch.setattr(progress_module, "get_connection", lambda session, account_id: None)
 
     with pytest.raises(ValueError):
-        progress_module.refresh_progress("page-1")
+        progress_module.refresh_dashboard_stats("acc-1")

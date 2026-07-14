@@ -2,14 +2,14 @@
 
 > `SPEC.md` 4.3(BP 리서치 엔진)·4.4(맞춤 로드맵 + 평가 지표 생성)를 구현하기 위한 공통 기술 계약. 두 기능 담당자 모두 이 문서를 기준으로 작업하고, 각자의 세부 구현은 `SPRINT1_FEATURE3_BP_RESEARCH.md` / `SPRINT1_FEATURE4_ROADMAP_GENERATOR.md`에 기록한다. **이 계약이 바뀌면 두 담당자 모두에게 공유하고 이 문서를 갱신한다.**
 
-- 최종 수정일: 2026-07-13
-- 상태: v0.7 (§2.7 어댑터 우선순위를 고정 순서 → pillar 라운드로빈으로 교체 — practice/trend가 research 소스에 밀려 크라우드아웃되던 문제 해소. 스키마·시그니처 불변)
+- 최종 수정일: 2026-07-14
+- 상태: v0.9 (**Notion 관리자용 Opportunity Map/Roadmap DB 재설계**. §5 `RoadmapResult` 확장(additive) — `work_item_id`/`fitness`/`layer`/`frequency_bucket`/`category`/숫자 `Metric`/`assigned_member_ids`. §11 신설. `OnboardingData` 불변)
 
 ---
 
 ## 0. 전제
 
-1번(온보딩 인터뷰), 2번(AX 성숙도 진단 및 목표 설정)은 이미 동작한다고 가정한다 (스프린트1 범위 아님). 스프린트1의 실제 시작점은 **2번이 만든 목표 정의서**이지, 온보딩 원본 답변이 아니다.
+1번(온보딩 인터뷰), 2번(AX 성숙도 진단 및 목표 설정)은 **v0.8에서 구현됐다** (`app/onboarding/`, `app/diagnosis/`, 상세는 `SPRINT1_FEATURE1_ONBOARDING.md`·`SPRINT1_FEATURE2_DIAGNOSIS.md`). 스프린트1(기능 3·4)의 시작점은 여전히 **2번이 만든 목표 정의서**이며, 이제 그 목표 정의서를 기능 2가 온보딩 결과로부터 실제로 생성한다. 기능 3·4는 이 변경의 영향을 받지 않는다 (`GoalDefinition` 스키마 불변, `OnboardingData`는 기본값 필드만 추가).
 
 ## 1. 시작점 예시 — 목표 정의서 (2번 산출물)
 
@@ -32,9 +32,9 @@
 
 이 예시처럼 목표는 이미 조직 환경(허용 도구, 연동 시스템, 보안 제약)을 담고 있고, 1번에서 수집한 반복 업무 후보도 참조로 들고 있다. 이 스키마는 `contracts/goal.py`(`GoalDefinition`)로 코드화하며, 스프린트1 동안 `fixtures/goal_001.json`을 표준 입력 픽스처로 사용한다.
 
-### 1.1 온보딩 데이터 — `OnboardingData` (임시 스키마, v0.3 추가)
+### 1.1 온보딩 데이터 — `OnboardingData` (v0.8에서 정식화)
 
-> **⚠️ 임시(기능 1 확정 전).** 기능 1(온보딩 인터뷰)의 정식 산출물 스키마가 아직 확정되지 않았다. 아래는 기능 4 담당자가 개발을 시작하기 위해 `app/contracts/onboarding.py`에 임시로 정의한 스키마(파일이 아직 없으면 본 절이 그 초안)이며, 근거는 `SPEC.md` 4.1의 출력(팀 프로필 + 반복 업무 리스트 + 팀원 태깅)이다. 기능 1이 확정되면 8절 변경 절차로 정식화한다. 소유권은 기능 4 담당자(임시 정의자)에게 있으며 기능 3은 이 스키마를 사용하지 않는다(`run_research`의 입력은 `GoalDefinition`뿐).
+> **✅ 정식화 완료 (v0.8).** 기능 1(온보딩 인터뷰) 구현과 함께 §8 절차로 확정했다. v0.3~v0.7의 임시 스키마에서 SPEC 4.1의 "AI 활용 수준"·"조직 환경"·"담당 업무 카테고리"를 담도록 **기본값과 함께 필드를 추가**했다(`ai_adoption_level`, `org_environment`, `work_categories`). 전부 기본값이 있어 기능 4의 기존 입력을 깨지 않는다(§8 "필드 추가는 기본값으로"). 소유권은 이제 기능 1이며, 상세는 `SPRINT1_FEATURE1_ONBOARDING.md`. 기능 3은 여전히 이 스키마를 쓰지 않는다(`run_research` 입력은 `GoalDefinition`뿐). 아래 예시는 최소 형태이며, 추가 필드는 `app/contracts/onboarding.py`가 정본이다.
 
 ```json
 {
@@ -70,6 +70,28 @@
 - `repetitive_tasks[]`: SPEC 4.1 "반복 업무 상세"의 최소 필드(빈도/정형성/평균 소요시간/민감정보 여부/기존 처리 방식). `avg_duration_min`·`current_method`는 nullable.
 - `member_tags[]`: SPEC 4.1 "(선택) 팀원 태깅" — **이름 대신 익명 식별자**(`member_alias`, 예: `M1`) 사용 (SPEC 2.6·4.1 정책). 선택 항목이므로 기본값 빈 배열.
 - `generate_roadmap()`가 역할 재분배 제안(SPEC 4.4)과 반복 업무 참조에 사용한다. 스프린트1 픽스처는 `fixtures/onboarding_goal_001.json`(있으면)으로 제공하되, 파일 소유·검수는 기능 4 담당자 몫이다.
+
+### 1.2 성숙도 진단 — `MaturityDiagnosis` (v0.8 신설, 기능 2 산출물)
+
+기능 2는 `GoalDefinition`(§1) 외에 **성숙도 진단**도 함께 낸다. 이쪽은 기능 3·4의 결과물과 함께 **노션 페이지에 표시**되는 용도다(기능 3의 리서치 컨텍스트와 달리 사용자에게 노출된다). `app/contracts/maturity.py`가 정본이며, 상세는 `SPRINT1_FEATURE2_DIAGNOSIS.md`.
+
+```json
+{
+  "goal_id": "goal_marketing_001",
+  "axis_scores": [
+    { "axis": "전략 명확성", "score": 2, "interpretation": "무엇을 바꿀지 목표 문장이 없음" }
+  ],
+  "priority_axes": ["평가 체계", "전략 명확성"],
+  "summary": "관심은 있으나 실행 로드맵·지표가 없는 상태",
+  "benchmark": { "comment": "…", "source": "원티드 AX 인사이트 리포트, 2026" }
+}
+```
+
+**규약**
+
+- `axis_scores`: SPEC 4.2 고정 5축(전략 명확성/도구 활용도/팀 수용력/데이터 접근성/평가 체계), 각 1~5점. `MATURITY_AXES` 정규 순서로 정렬해 전달(레이더 차트 축 순서 고정).
+- `goal_id`: 같은 세션의 `GoalDefinition.goal_id`와 **동일** — 노션 페이지에서 진단과 목표를 잇는다.
+- `benchmark`: SPEC 2.6 — **출처가 있을 때만** 채우고, 없으면 `null`. `source`는 필수.
 
 ## 2. 아키텍처 확정 사항 (v0.2에서 결정)
 
@@ -248,7 +270,9 @@ PILLARS = [
 - `search_queries`는 디버깅·출처 추적용이며 사용자에게 노출하지 않는다.
 - 사용자에게 이 구조를 그대로 노출하지 않는다 (`SPEC.md` 4.3 정책). 출처 인용문(2.6 정책)의 원천은 `source_url` + `metric_snippet`뿐이다.
 
-## 5. 인터페이스 계약 — 4 → Frontend / 5번 (RoadmapResult)
+## 5. 인터페이스 계약 — 4 → Frontend / 5번 / Notion (RoadmapResult)
+
+> **v0.9에서 확장** — Notion Opportunity Map/Roadmap 데이터베이스 발행(§11)을 위해 필드 추가. 기존 필드는 의미 불변, 전부 additive.
 
 ```json
 {
@@ -256,8 +280,12 @@ PILLARS = [
   "research_status": "ok",
   "fitness_assessment": [
     {
+      "work_item_id": "wi_001",
       "task_candidate": "월간 보고서 작성",
       "matrix_position": "자주+정형",
+      "fitness": "부적합",
+      "layer": null,
+      "frequency_bucket": "매주",
       "verdict": "규칙기반 자동화 추천 (Pivot)",
       "reason": "string",
       "gate_applied": null
@@ -266,39 +294,58 @@ PILLARS = [
   "tasks": [
     {
       "task_id": "task_001",
+      "work_item_id": "wi_002",
       "title": "string",
       "layer": 1,
       "week": 1,
+      "category": "Automation",
       "difficulty": "중",
       "est_time": "string",
       "expected_effect": "string",
       "tools_needed": ["Copilot"],
       "failure_risk": "string",
-      "source_refs": ["F1"]
+      "source_refs": ["F1"],
+      "detailed_guide": "string"
     }
   ],
   "role_reassignment_suggestions": [
     {
       "task_id": "task_001",
-      "suggested_member": "string",
+      "assigned_member_ids": ["M1", "M2"],
       "reason": "string",
       "disclaimer": "실제 배분은 팀장님이 판단해주세요"
     }
   ],
   "metrics": [
-    { "task_id": "task_001", "metric_name": "string", "baseline": "string", "target": "string" }
+    {
+      "task_id": "task_001",
+      "metric_name": "string",
+      "unit": "분",
+      "baseline_value": 180,
+      "current_value": 180,
+      "target_value": 30
+    }
   ]
 }
 ```
 
 **규약**
 
-- `fitness_assessment`는 SPEC.md 4.4의 "AI 적합성 판정" 결과 (Pivot 포함).
+- `fitness_assessment`는 SPEC.md 4.4의 "AI 적합성 판정" 결과 — **부서 반복 업무 전체**(`OnboardingData.repetitive_tasks`) 1건당 1개, Pivot 포함. `work_item_id`는 LLM이 지어내지 않고 **코드가 `onboarding.repetitive_tasks`의 순서대로 강제 부여**한다(`wi_001`부터). `fitness`는 적합/부분 적합/부적합 3단계로 정규화된 판정값 — Notion Opportunity Map의 select 값으로 그대로 쓴다. `layer`는 `fitness`가 부적합이 아닐 때만 채운다. `frequency_bucket`은 `RepetitiveTask.frequency`(자유 텍스트)를 LLM이 매일/매주/격주/월1~2회 중 하나로 해석한 값 — **온보딩(`OnboardingData.RepetitiveTask.frequency`) 스키마 자체는 바꾸지 않는다**(§8 절차 대상 아님). 이미 이 프롬프트가 같은 방식으로 "자주/가끔" 판단을 LLM에 위임하고 있어([research/finding_id] 인용과 같은 패턴), frequency_bucket도 그 위에 얹는다.
+- `tasks[].work_item_id`는 이 task가 어느 업무 후보에서 나왔는지를 가리킨다 — Notion Roadmap의 `Objective` relation이 이 값으로 Opportunity Map 행을 찾는다. `category`는 Tool/Automation/Knowledge/Workflow/Culture 5종 중 하나(고정, LLM이 5종 밖 값을 내면 검증 에러).
 - `source_refs`는 `ResearchContext.findings[].finding_id`를 참조한다 (배열 인덱스 참조 금지 — 순서 바뀌면 깨짐).
 - `week`는 주 단위 타임라인 (SPEC.md 4.4 처리 순서 3).
 - `research_status`는 받은 `ResearchContext.status`를 그대로 전달 — 5번·프론트가 근거 신뢰도를 알 수 있게.
-- `role_reassignment_suggestions`는 팀 내부 재분배로 한정 (SPEC.md 4.4) — `disclaimer`는 항상 고정 문구.
+- `role_reassignment_suggestions`는 팀 내부 재분배로 한정 (SPEC.md 4.4) — `disclaimer`는 항상 고정 문구. `assigned_member_ids`는 `OnboardingData.member_tags[].member_id`에 실제로 존재하는 값만 허용(코드가 검증, LLM이 없는 ID를 지어내면 걸러냄) — Notion Roadmap의 "담당자" relation이 이 ID로 팀원 DB 행을 찾는다.
+- `metrics`는 더 이상 "소요시간"에 고정하지 않는다 — task마다 AI가 정한 지표(시간/건수/정확도 등)를 `unit` + 숫자 3값(`baseline_value`/`current_value`/`target_value`)으로 담는다. `current_value`는 발행 시점엔 `baseline_value`와 동일하게 코드가 강제 초기화(주간 트래킹 기능이 생기기 전까지 갱신 수단이 없음) — Notion Roadmap의 `Progress` formula가 이 세 값으로 자동 계산된다.
 - 이 결과물 전체가 5번(트래킹)에 baseline으로 저장되고, 다음 루프에서 4번 재호출 시 자산화 저장소 데이터와 함께 다시 입력된다.
+
+## 11. Notion 발행 재설계 (v0.9 — 관리자용 Opportunity Map/Roadmap DB)
+
+기존(v0.8까지)의 "한 페이지 + 체크박스 토글" 발행 방식을 **데이터베이스 3종 + 대시보드 페이지**로 교체한다. 세부 설계·의사결정 근거는 `SPRINT1_FEATURE4_ROADMAP_GENERATOR.md` §10을 참고. 계약 문서에는 이 결정이 §5 스키마에 미친 영향만 기록한다.
+
+- 대상 사용자는 **관리자 1인**(팀 전체 아님) — SPEC.md 정책과 별개로 이번 릴리스의 범위 제한.
+- Notion 공개 REST API는 **차트/뷰 생성을 지원하지 않는다**(2026-07 기준 확인 — `SPRINT1_FEATURE4_ROADMAP_GENERATOR.md` §10 출처 참고). 템플릿의 두 차트 자리("발견한 AI Opportunity 수", "AX 적용한 업무 수")는 백엔드가 계산해 콜아웃 블록에 쓰는 방식으로 구현하고(기존 `progress.py` 새로고침 패턴 재사용), task별 `Progress %`만 Notion formula 속성(발행 시 1회 정의, 이후 자동 계산)으로 처리한다.
 
 ## 6. 기술 스택 (확정)
 
@@ -335,6 +382,8 @@ PILLARS = [
 
 | 기능 | 문서 |
 |---|---|
+| 1. 온보딩 인터뷰 | `SPRINT1_FEATURE1_ONBOARDING.md` |
+| 2. AX 성숙도 진단 및 목표 설정 | `SPRINT1_FEATURE2_DIAGNOSIS.md` |
 | 3. BP 리서치 엔진 | `SPRINT1_FEATURE3_BP_RESEARCH.md` |
 | 4. 맞춤 로드맵 + 평가 지표 생성 | `SPRINT1_FEATURE4_ROADMAP_GENERATOR.md` |
 
@@ -342,6 +391,8 @@ PILLARS = [
 
 | 날짜 | 변경 내용 |
 |---|---|
+| 2026-07-14 | v0.9 — Notion 발행을 "페이지+체크박스"에서 "Opportunity Map/Roadmap/팀원 데이터베이스 + 대시보드 페이지"로 재설계(§11 신설). §5 `RoadmapResult` additive 확장: `FitnessAssessment`에 `work_item_id`(코드가 온보딩 반복업무 순서로 강제 부여)·`fitness`(적합/부분 적합/부적합 3단계)·`layer`·`frequency_bucket` 추가, `Task`에 `work_item_id`·`category`(Tool/Automation/Knowledge/Workflow/Culture) 추가, `Metric`을 자유텍스트 baseline/target에서 `unit`+숫자 3값(baseline/current/target)으로 구조화(더 이상 "소요시간"에 고정하지 않음), `role_reassignment_suggestions`를 `suggested_member: str`에서 `assigned_member_ids: list[str]`로 변경(온보딩 `member_id`만 허용, 코드가 검증). `OnboardingData` 스키마는 불변 — `frequency_bucket`은 온보딩이 아니라 Stage A가 자유텍스트 `frequency`를 해석해서 생성(기존 "자주/가끔" 판단과 같은 패턴). AI 활용률 지표는 비율이 아니라 **절대 건수 2종**("발견한 AI Opportunity 수" = Opportunity Map에서 fitness≠부적합 건수, "AX 적용한 업무 수" = Roadmap에서 실제 착수(current≠baseline)된 task 건수)으로 확정 — 판정을 부풀려도 점수가 오르지 않도록 비율 설계를 폐기 |
+| 2026-07-14 | v0.8 — **기능 1·2 구현**(§8 절차). ① §1.1 임시 `OnboardingData`를 **정식화**: SPEC 4.1의 AI 활용 수준·조직 환경·업무 카테고리를 담도록 `ai_adoption_level`·`org_environment`·`work_categories`를 **기본값과 함께 추가**(기능 4 입력 불변). 소유권 기능 1로 이관. ② §1.2 신설: 기능 2 산출물 `MaturityDiagnosis`(성숙도 5축, 노션 표시용) 추가. ③ `GoalDefinition`을 온보딩 결과로부터 실제 생성하는 주체가 기능 2로 확정(스키마 불변). ④ 노션 발행에 진단+로드맵을 한 페이지로 합치는 `publish_report` 추가(진행 추적 인덱스 보정 포함). 기능 3·4 시그니처·스키마 전부 불변, 79 tests passed. 상세는 `SPRINT1_FEATURE1_ONBOARDING.md`·`SPRINT1_FEATURE2_DIAGNOSIS.md` |
 | 2026-07-13 | v0.7 — §2.9 신설: 소스 선택 로직을 고정 어댑터 순서(`semantic_scholar→arxiv→github→tavily`)에서 **pillar(practice/trend/research) 라운드로빈**으로 교체. research 소스 둘만으로 `MAX_FINDINGS`가 채워져 practice·trend가 크라우드아웃되던 문제 해소(LLM 미사용, 규칙 기반). `service.py`의 `ADAPTERS` 상수를 `PILLARS`로 대체. 실호출로 Tavily(trend) 정상 반영 확인. 회귀 테스트 2건 추가, 65 tests passed |
 | 2026-07-13 | v0.6 — §2.4 HTTP 오케스트레이션 계약 불일치 해소: `app/routers/roadmap.py`의 `/generate`·`/publish`·`/generate-and-publish`가 `ResearchContext`를 요청 바디로 받던 것을 제거하고, 서버 내부에서 `run_research(goal)`을 호출하도록 수정(§2.4에 `/publish` 적용 범위 명확화 추가). 기능 4 소유 파일이지만 사용자가 비용-편익 분석 후 위임한 예외 조치. `RoadmapResult` 캐싱은 오픈 제안으로 남김(§2.4). origin/main(Notion 발행 기능) 병합 포함. 통합테스트(함수+HTTP 레벨) 재검증 완료, 63 tests passed |
 | 2026-07-13 | v0.5 — ① **기능 4(origin/main)와 병합**: 기능 4 담당자가 독립적으로 만든 `contracts/goal.py`·`research.py`(str Enum 사용)를 채택(add/add 충돌을 기능 4 쪽으로 해소, 필드는 동일), `contracts/__init__.py`는 기능 3의 re-export 버전 유지, `core/config.py`는 기능 4의 단일 `GEMINI_API_KEY` 채택(리서치가 Gemini 불필요해졌으므로 §6의 "키 기능별 분리"는 폐기), `tests/test_contracts.py`는 기능 4의 공동 스키마 테스트를 유지하고 기능 3의 `run_research()` 동작 테스트는 `tests/test_research.py`로 분리. 병합 후 44개 테스트 전부 통과 확인 ② **소스 확장**(§2.7): GitHub Search·Tavily 채택, Reddit은 상업적 이용 ToS 제약으로 기각 ③ **seed 소수 원칙 코드화**(§2.6): `SEED_LIMIT=4` 도입 ④ AX 리포트 6건 기반 seed 14건 큐레이션(§2.8), seed 간 URL 중복으로 일부가 조용히 드롭되던 버그를 fragment URL로 수정 |

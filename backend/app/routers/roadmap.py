@@ -4,7 +4,7 @@ from pydantic import BaseModel
 from app.contracts.goal import GoalDefinition
 from app.contracts.onboarding import OnboardingData
 from app.contracts.roadmap import RoadmapResult
-from app.notion.progress import refresh_progress
+from app.notion.progress import refresh_dashboard_stats
 from app.notion.publish import publish_roadmap
 from app.research import run_research
 from app.roadmap import generate_roadmap
@@ -20,12 +20,14 @@ class GenerateRoadmapRequest(BaseModel):
 class PublishRoadmapRequest(BaseModel):
     goal: GoalDefinition
     roadmap: RoadmapResult
+    onboarding: OnboardingData
     account_id: str = "default"
     parent_page_id: str | None = None
 
 
 class GenerateAndPublishRequest(GenerateRoadmapRequest):
     account_id: str = "default"
+    parent_page_id: str | None = None
 
 
 class PublishRoadmapResponse(BaseModel):
@@ -34,9 +36,10 @@ class PublishRoadmapResponse(BaseModel):
 
 
 class RefreshProgressResponse(BaseModel):
-    completed: int
-    total: int
-    completed_task_titles: list[str]
+    discovered: int
+    total_work_items: int
+    applied: int
+    total_tasks: int
 
 
 @router.post("/generate", response_model=RoadmapResult)
@@ -47,9 +50,8 @@ def generate(payload: GenerateRoadmapRequest) -> RoadmapResult:
 
 @router.post("/publish", response_model=PublishRoadmapResponse)
 def publish(payload: PublishRoadmapRequest) -> PublishRoadmapResponse:
-    research = run_research(payload.goal)
     result = publish_roadmap(
-        payload.goal, payload.roadmap, payload.account_id, research, payload.parent_page_id
+        payload.goal, payload.roadmap, payload.onboarding, payload.account_id, payload.parent_page_id
     )
     return PublishRoadmapResponse(notion_url=result["url"], page_id=result["page_id"])
 
@@ -58,12 +60,14 @@ def publish(payload: PublishRoadmapRequest) -> PublishRoadmapResponse:
 def generate_and_publish(payload: GenerateAndPublishRequest) -> PublishRoadmapResponse:
     research = run_research(payload.goal)
     roadmap = generate_roadmap(payload.goal, research, payload.onboarding)
-    result = publish_roadmap(payload.goal, roadmap, payload.account_id, research)
+    result = publish_roadmap(
+        payload.goal, roadmap, payload.onboarding, payload.account_id, payload.parent_page_id
+    )
     return PublishRoadmapResponse(notion_url=result["url"], page_id=result["page_id"])
 
 
-@router.post("/{page_id}/refresh-progress", response_model=RefreshProgressResponse)
-def refresh(page_id: str) -> RefreshProgressResponse:
-    """Notion에서 체크박스 상태를 다시 읽어와 페이지 안의 진행 현황 요약을 갱신한다 (수동 호출)."""
-    result = refresh_progress(page_id)
+@router.post("/{account_id}/refresh-progress", response_model=RefreshProgressResponse)
+def refresh(account_id: str) -> RefreshProgressResponse:
+    """Opportunity Map/Roadmap 데이터베이스를 다시 읽어와 대시보드 집계 콜아웃을 갱신한다 (수동 호출)."""
+    result = refresh_dashboard_stats(account_id)
     return RefreshProgressResponse(**result)

@@ -48,21 +48,15 @@ def test_generate_endpoint_calls_run_research_and_generate_roadmap(monkeypatch):
     assert captured["research"] is fake_research
 
 
-def test_publish_endpoint_calls_run_research_and_returns_notion_url_and_page_id(monkeypatch):
+def test_publish_endpoint_calls_publish_roadmap_and_returns_notion_url_and_page_id(monkeypatch):
     captured = {}
-    fake_research = ResearchContext(
-        goal_id="goal_001", retrieved_at="2026-07-13T00:00:00Z", status=ResearchStatus.OK, findings=[]
-    )
 
-    def fake_run_research(goal):
-        captured["research_goal_id"] = goal.goal_id
-        return fake_research
-
-    def fake_publish_roadmap(goal, roadmap, account_id, research=None, parent_page_id=None):
-        captured["research"] = research
+    def fake_publish_roadmap(goal, roadmap, onboarding, account_id, parent_page_id=None):
+        captured["goal_id"] = goal.goal_id
+        captured["onboarding_team_size"] = onboarding.team_size
+        captured["account_id"] = account_id
         return {"url": "https://notion.so/main", "page_id": "page-123"}
 
-    monkeypatch.setattr(roadmap_router_module, "run_research", fake_run_research)
     monkeypatch.setattr(roadmap_router_module, "publish_roadmap", fake_publish_roadmap)
 
     client = TestClient(app)
@@ -71,14 +65,15 @@ def test_publish_endpoint_calls_run_research_and_returns_notion_url_and_page_id(
         "roadmap": RoadmapResult(goal_id="goal_001", research_status=ResearchStatus.OK).model_dump(
             mode="json"
         ),
+        "onboarding": _load("onboarding_001.json"),
     }
 
     response = client.post("/roadmap/publish", json=payload)
 
     assert response.status_code == 200
     assert response.json() == {"notion_url": "https://notion.so/main", "page_id": "page-123"}
-    assert captured["research_goal_id"] == "goal_001"
-    assert captured["research"] is fake_research
+    assert captured["goal_id"] == "goal_001"
+    assert captured["onboarding_team_size"] == _load("onboarding_001.json")["team_size"]
 
 
 def test_generate_and_publish_endpoint_calls_run_research_once_and_returns_notion_url(monkeypatch):
@@ -95,8 +90,8 @@ def test_generate_and_publish_endpoint_calls_run_research_once_and_returns_notio
         captured["generate_research"] = research
         return RoadmapResult(goal_id=goal.goal_id, research_status=ResearchStatus.OK)
 
-    def fake_publish_roadmap(goal, roadmap, account_id, research=None, parent_page_id=None):
-        captured["publish_research"] = research
+    def fake_publish_roadmap(goal, roadmap, onboarding, account_id, parent_page_id=None):
+        captured["publish_called"] = True
         return {"url": "https://notion.so/main", "page_id": "page-123"}
 
     monkeypatch.setattr(roadmap_router_module, "run_research", fake_run_research)
@@ -115,21 +110,26 @@ def test_generate_and_publish_endpoint_calls_run_research_once_and_returns_notio
     assert response.json() == {"notion_url": "https://notion.so/main", "page_id": "page-123"}
     assert captured["run_research_calls"] == 1
     assert captured["generate_research"] is fake_research
-    assert captured["publish_research"] is fake_research
+    assert captured["publish_called"] is True
 
 
-def test_refresh_progress_endpoint_calls_refresh_progress(monkeypatch):
+def test_refresh_progress_endpoint_calls_refresh_dashboard_stats(monkeypatch):
     captured = {}
 
-    def fake_refresh_progress(page_id):
-        captured["page_id"] = page_id
-        return {"completed": 1, "total": 2, "completed_task_titles": ["task A"]}
+    def fake_refresh_dashboard_stats(account_id):
+        captured["account_id"] = account_id
+        return {"discovered": 2, "total_work_items": 3, "applied": 1, "total_tasks": 4}
 
-    monkeypatch.setattr(roadmap_router_module, "refresh_progress", fake_refresh_progress)
+    monkeypatch.setattr(roadmap_router_module, "refresh_dashboard_stats", fake_refresh_dashboard_stats)
 
     client = TestClient(app)
-    response = client.post("/roadmap/page-123/refresh-progress")
+    response = client.post("/roadmap/acc-1/refresh-progress")
 
     assert response.status_code == 200
-    assert response.json() == {"completed": 1, "total": 2, "completed_task_titles": ["task A"]}
-    assert captured["page_id"] == "page-123"
+    assert response.json() == {
+        "discovered": 2,
+        "total_work_items": 3,
+        "applied": 1,
+        "total_tasks": 4,
+    }
+    assert captured["account_id"] == "acc-1"

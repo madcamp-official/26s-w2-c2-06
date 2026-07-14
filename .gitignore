@@ -250,3 +250,10 @@ $RECYCLE.BIN/
 
 # Claude Code local-only context (not shared)
 .claude/CLAUDE.local.md
+
+# 리서치 seed 큐레이션 원본 자료 (일부 "Strictly Confidential" 표기 있음, SPRINT1_CONTRACT.md v0.5 참고)
+# — 리포지토리에 커밋하지 않는다. 큐레이션 결과(seed_findings_*.json)만 커밋 대상.
+AX리포트/
+
+# 빈 R 히스토리 파일 (실수로 생성됨)
+docs/.Rhistory

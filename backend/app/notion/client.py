@@ -57,3 +57,71 @@ def update_callout_text(block_id: str, content: str, headers: dict[str, str]) ->
         timeout=30,
     )
     response.raise_for_status()
+
+
+def create_database(
+    parent_page_id: str, title: str, properties: dict, headers: dict[str, str]
+) -> dict:
+    """데이터베이스를 만든다. {"database_id", "data_source_id"}를 반환한다.
+
+    2025-09-03+ API부터 데이터베이스 아래에 "data source"가 별도 객체로 존재한다
+    (SPRINT1_FEATURE4_ROADMAP_GENERATOR.md 9절 — 예전 task_database.py에서 실제 호출로 확인한 내용).
+    행(page)의 parent는 database_id가 아니라 data_source_id여야 한다.
+    """
+    body = {
+        "parent": {"type": "page_id", "page_id": parent_page_id},
+        "title": [{"type": "text", "text": {"content": title}}],
+        "initial_data_source": {"properties": properties},
+    }
+    response = httpx.post(f"{_API_BASE}/databases", headers=headers, json=body, timeout=30)
+    response.raise_for_status()
+    database = response.json()
+
+    data_sources = database.get("data_sources") or []
+    data_source_id = data_sources[0]["id"] if data_sources else database["id"]
+    return {"database_id": database["id"], "data_source_id": data_source_id}
+
+
+def create_database_row(
+    data_source_id: str,
+    properties: dict,
+    headers: dict[str, str],
+    blocks: list[dict] | None = None,
+) -> dict:
+    """데이터베이스 행(page)을 만든다. blocks는 그 행의 페이지 본문(예: task 상세 가이드)."""
+    first_batch, remaining = (blocks or [])[:_MAX_BLOCKS_PER_REQUEST], (blocks or [])[
+        _MAX_BLOCKS_PER_REQUEST:
+    ]
+    body = {
+        "parent": {"type": "data_source_id", "data_source_id": data_source_id},
+        "properties": properties,
+        "children": first_batch,
+    }
+    response = httpx.post(f"{_API_BASE}/pages", headers=headers, json=body, timeout=30)
+    response.raise_for_status()
+    page = response.json()
+
+    for i in range(0, len(remaining), _MAX_BLOCKS_PER_REQUEST):
+        _append_children(page["id"], remaining[i : i + _MAX_BLOCKS_PER_REQUEST], headers)
+
+    return {"id": page["id"], "url": page["url"]}
+
+
+def query_data_source(data_source_id: str, headers: dict[str, str]) -> list[dict]:
+    """data source(구 database) 안의 행을 전부 조회한다 (첫 페이지만, 최대 100건 — 부서 규모 전제라 충분).
+    집계 콜아웃 새로고침(progress.py)에 쓴다. 공개 API는 서버 사이드 집계/차트가 없어 직접 세야 한다."""
+    response = httpx.post(
+        f"{_API_BASE}/data_sources/{data_source_id}/query", headers=headers, json={}, timeout=30
+    )
+    response.raise_for_status()
+    return response.json()["results"]
+
+
+def update_page_properties(page_id: str, properties: dict, headers: dict[str, str]) -> None:
+    response = httpx.patch(
+        f"{_API_BASE}/pages/{page_id}",
+        headers=headers,
+        json={"properties": properties},
+        timeout=30,
+    )
+    response.raise_for_status()

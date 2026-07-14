@@ -22,4 +22,4 @@ def generate_roadmap(
 ) -> RoadmapResult:
     client = get_client()
     draft = run_stage_a(client, goal, research, onboarding)
-    return run_stage_b(client, draft, goal, research.status)
+    return run_stage_b(client, draft, goal, research.status, onboarding)

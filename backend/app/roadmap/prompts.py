@@ -26,22 +26,36 @@ _POLICY_BLOCK = """
 
 _FITNESS_MATRIX_BLOCK = """
 ## AI 적합성 판정 매트릭스
-반복 업무마다 "빈도 x 정형성"으로 분류한다.
+반복 업무마다 "빈도 x 정형성"으로 분류하고, 그 결과를 적합/부분 적합/부적합 3단계(fitness)로 정규화한다.
 - 빈도 기준: 주 1회 이상 수행 = "자주", 그보다 드물면(예: 월 1회 이하) = "가끔"
 - 정형성 기준: 온보딩 데이터의 is_standardized=true면 "정형", false면 "비정형"
 
-| 빈도 x 정형성 | 판정 |
-|---|---|
-| 자주 + 정형 | 규칙기반 자동화(엑셀 함수/템플릿) 추천, 생성형 AI는 과함 (Pivot) |
-| 자주 + 비정형 | 생성형 AI 최적 영역 — Layer 분류로 진행 |
-| 가끔 + 정형 | 자동화 투자 대비 효율 낮음, 현행 유지 추천 (Pivot) |
-| 가끔 + 비정형 | 케이스바이케이스, 우선순위 낮게 참고자료로만 |
+| 빈도 x 정형성 | verdict | fitness | layer |
+|---|---|---|---|
+| 자주 + 정형 | 규칙기반 자동화(엑셀 함수/템플릿) 추천, 생성형 AI는 과함 (Pivot) | 부적합 | null |
+| 자주 + 비정형 | 생성형 AI 최적 영역 | 적합 | 업무의 판단 개입 정도로 1~3 결정 |
+| 가끔 + 정형 | 자동화 투자 대비 효율 낮음, 현행 유지 추천 (Pivot) | 부적합 | null |
+| 가끔 + 비정형 | 케이스바이케이스, 우선순위 낮게 참고자료로만 | 부분 적합 | 업무의 판단 개입 정도로 1~3 결정 |
 
-게이트(판정을 강등):
-- 민감정보 포함(contains_sensitive_info=true) + 회사 AI 가이드라인 없음(org_constraints로 판단) -> "보류 + 경고" 로 강등
-- 이미 기존 대안으로 충분히 처리되고 있음 -> "현행 유지" 로 강등
+게이트(판정을 강등, fitness는 항상 부적합으로):
+- 민감정보 포함(contains_sensitive_info=true) + 회사 AI 가이드라인 없음(org_constraints로 판단) -> "보류 + 경고"
+- 이미 기존 대안으로 충분히 처리되고 있음 -> "현행 유지"
 
-Pivot(부적합) 판정에는 반드시 이유와 대안(기존 도구/수작업 유지)을 reason에 함께 적는다.
+fitness=부적합인 항목에는 반드시 이유와 대안(기존 도구/수작업 유지)을 reason에 함께 적는다(Opportunity Map의
+"pivot 사유"로 그대로 쓰인다). layer는 fitness가 적합/부분 적합일 때만 채우고, 부적합이면 null로 둔다.
+
+## frequency_bucket
+각 업무의 원문 빈도 표현(예: "주 2회", "월말마다")을 읽고 매일 / 매주 / 격주 / 월 1~2회 중 가장 가까운
+하나로 분류해 frequency_bucket에 채운다(Opportunity Map 화면에 그대로 노출되는 값).
+"""
+
+_CATEGORY_GUIDE_BLOCK = """
+## task 카테고리 (category, 5종 중 정확히 하나)
+- Tool: 개인 생산성 도구화 — 프롬프트/템플릿 만들기, 이메일 초안 자동화, 재사용 가능한 프롬프트 라이브러리
+- Automation: 규칙적 반복 작업의 자동 처리 — ERP/데이터 요약, 반복 보고서 생성, 데이터 정리
+- Knowledge: 팀 지식을 AI가 찾을 수 있게 구조화 — LLM 위키, FAQ, 문서 체계
+- Workflow: 업무 절차 자체의 재설계 — 승인 절차 단축, 회의→Action Item 자동화
+- Culture: 팀의 AI 활용 문화 확산 — 활용 사례 수집, 데모데이, 베스트 프랙티스 공유
 """
 
 
@@ -49,10 +63,10 @@ def build_stage_a_prompt(
     goal: GoalDefinition, research: ResearchContext, onboarding: OnboardingData
 ) -> str:
     tasks_block = "\n".join(
-        f"- {t.title} (빈도: {t.frequency}, 정형여부: {'정형' if t.is_standardized else '비정형'}, "
+        f"[wi_{i + 1:03d}] {t.title} (빈도: {t.frequency}, 정형여부: {'정형' if t.is_standardized else '비정형'}, "
         f"평균 소요시간: {t.avg_time_minutes}분, 민감정보 포함: {t.contains_sensitive_info}, "
         f"현재 처리방식: {t.current_method})"
-        for t in onboarding.repetitive_tasks
+        for i, t in enumerate(onboarding.repetitive_tasks)
     ) or "(반복 업무 후보 없음)"
 
     findings_block = "\n".join(
@@ -71,6 +85,7 @@ def build_stage_a_prompt(
     return f"""당신은 중간관리자를 돕는 AX(AI 전환) 코칭 어시스턴트다.
 {_POLICY_BLOCK}
 {_FITNESS_MATRIX_BLOCK}
+{_CATEGORY_GUIDE_BLOCK}
 
 ## 목표
 {goal.goal_text}
@@ -82,7 +97,7 @@ def build_stage_a_prompt(
 - 보안 수준: {goal.org_constraints.security_level}
 - (회사 AI 가이드라인 유무는 명시되지 않았다면 "없음"으로 간주하고 게이트 판정에 반영할 것)
 
-## 팀의 반복 업무 후보
+## 팀의 반복 업무 후보 (부서 업무 전체 — 각 항목의 [wi_xxx] 태그를 그대로 인용할 것)
 {tasks_block}
 
 ## 팀원 태깅 (역할 재분배 참고용, 인사 데이터 아님)
@@ -92,20 +107,29 @@ def build_stage_a_prompt(
 {findings_block}
 
 ## 출력 지시
-1. fitness_judgments: 반복 업무 후보 각각에 매트릭스를 적용해 판정
-2. strategy_draft: 적합 판정된 업무들의 서술형 실행 전략. 근거는 [F1] 형식으로 인용 (research_status가 ok가 아니면 인용 생략)
-3. task_outline: 적합 판정된 업무를 "이번 주 바로 시도 가능한" 수준으로 나눈 task (title/layer/week/approach/source_refs)
-4. metric_ideas: 성과 지표 아이디어(시간 단축/생산성 등) 문장 목록
-5. reassignment_notes: 팀원 태깅을 참고한 역할 재분배 아이디어 (팀 내부 한정, 실행권한 없음을 전제로 서술)
+1. fitness_judgments: 위 반복 업무 후보 **각각에 대해 정확히 1건씩, 나열된 순서 그대로** 매트릭스를 적용해
+   판정. work_item_id에는 그 업무의 [wi_xxx] 태그를 그대로 적는다(새로 만들지 말 것). fitness/layer/
+   frequency_bucket도 함께 채운다.
+2. strategy_draft: 적합/부분 적합 판정된 업무들의 서술형 실행 전략. 근거는 [F1] 형식으로 인용 (research_status가
+   ok가 아니면 인용 생략)
+3. task_outline: 적합/부분 적합 판정된 업무를 "이번 주 바로 시도 가능한" 수준으로 나눈 task
+   (work_item_id는 그 task가 구체화한 업무의 [wi_xxx] 태그, title/layer/week/category/approach/source_refs)
+4. metric_ideas: 성과 지표 아이디어 문장 목록 — 소요시간에 한정하지 않는다(정확도/건수/오류율 등도 가능)
+5. reassignment_notes: 팀원 태깅을 참고한 역할 재분배 아이디어 (팀 내부 한정, 실행권한 없음을 전제로 서술).
+   특정 팀원을 지목할 때는 반드시 member_id(M1, M2 …)를 그대로 언급할 것(새 이름 만들지 말 것)
 """
 
 
-def build_stage_b_prompt(draft: DraftPlan, goal: GoalDefinition) -> str:
+def build_stage_b_prompt(
+    draft: DraftPlan, goal: GoalDefinition, onboarding: OnboardingData
+) -> str:
     outline_block = "\n".join(
-        f"- {t.title} (layer {t.layer}, week {t.week}): {t.approach} "
-        f"[근거: {', '.join(t.source_refs) or '없음'}]"
+        f"- [{t.work_item_id}] {t.title} (layer {t.layer}, week {t.week}, category {t.category.value}): "
+        f"{t.approach} [근거: {', '.join(t.source_refs) or '없음'}]"
         for t in draft.task_outline
     ) or "(task 없음)"
+
+    member_ids_block = ", ".join(m.member_id for m in onboarding.member_tags) or "(팀원 태깅 없음)"
 
     return f"""당신은 Stage A의 초안(DraftPlan)을 사용자에게 보여줄 구조화된 로드맵으로 다듬는다.
 {_POLICY_BLOCK}
@@ -116,7 +140,7 @@ def build_stage_b_prompt(draft: DraftPlan, goal: GoalDefinition) -> str:
 ## Stage A 실행 전략 초안
 {draft.strategy_draft}
 
-## Stage A task 개요
+## Stage A task 개요 (work_item_id/category는 그대로 유지해서 옮길 것)
 {outline_block}
 
 ## Stage A 지표 아이디어
@@ -125,13 +149,16 @@ def build_stage_b_prompt(draft: DraftPlan, goal: GoalDefinition) -> str:
 ## Stage A 역할 재분배 메모
 {"; ".join(draft.reassignment_notes) or "(없음)"}
 
+## 배정 가능한 팀원 ID (이 목록에 없는 ID는 절대 만들지 말 것)
+{member_ids_block}
+
 ## 조직이 실제 쓸 수 있는 도구
 허용 도구: {', '.join(goal.org_constraints.allowed_tools) or '명시 안 됨'}
 
 ## 출력 지시
 1. tasks: 위 task 개요 각각을 difficulty(난이도)/est_time(예상 소요시간)/expected_effect(기대 효과)/
    tools_needed(필요 도구, 조직 제약의 허용 도구 우선 고려)/failure_risk(실패 요인)까지 채운 완전한 task로 확장.
-   task_id는 "task_001"부터 순번으로 부여.
+   work_item_id/category는 task 개요에 적힌 값을 그대로 옮긴다(변경 금지). task_id는 "task_001"부터 순번으로 부여.
 2. detailed_guide (제일 중요, 길게 써도 됨): **이 업무를 한 번도 안 해본 사람**이 그대로 따라 할 수 있는
    단계별 가이드를 작성한다.
    - **형식을 반드시 지킬 것**: 각 단계는 항상 줄바꿈으로 구분하고, 반드시 아라비아 숫자 + 마침표 +
@@ -149,8 +176,11 @@ def build_stage_b_prompt(draft: DraftPlan, goal: GoalDefinition) -> str:
      참고해서 팀 전체가 이해하기 쉬운 3줄 요약을 만들어줘: {{회의록 내용}}"`)
    - 전문 용어를 쓰면 그 자리에서 바로 풀어서 설명한다 (SPEC.md 2.1 정책과 동일)
    - 단계는 최소 4~5개 이상으로 세분화한다. "그냥 Copilot으로 초안 작성" 같은 뭉뚱그린 문장 금지.
-3. role_reassignment_suggestions: 역할 재분배 메모를 task_id와 연결한 제안 카드로 변환.
+3. role_reassignment_suggestions: 역할 재분배 메모를 task_id와 연결한 제안 카드로 변환. task 하나당 최대
+   1건, assigned_member_ids에는 "배정 가능한 팀원 ID" 목록에 실제로 있는 값만 0개 이상 넣는다(지어내지 말 것).
    disclaimer 필드에는 반드시 "실제 배분은 팀장님이 판단해주세요"를 그대로 적을 것.
-4. metrics: 지표 아이디어를 task_id와 연결해 metric_name/baseline/target으로 구체화.
+4. metrics: 지표 아이디어를 task_id와 연결해 구체화한다. metric_name(지표명)·unit(단위, 예: 분/건/%)·
+   baseline_value(기존값)·target_value(목표값)를 숫자로 채운다(current_value는 신경쓰지 않아도 됨 — 코드가
+   baseline_value와 동일하게 채운다). 소요시간이 아니어도 된다 — 그 task에 가장 적합한 지표를 자유롭게 고른다.
 5. fitness_assessment: Stage A의 fitness_judgments를 그대로 옮긴다 (내용 변경 금지).
 """
