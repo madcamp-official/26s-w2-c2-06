@@ -1,100 +1,87 @@
-"""계정별 Notion 연결 정보를 찾아 RoadmapResult를 그 계정의 워크스페이스에 발행한다.
+"""계정별 Notion 연결 정보를 찾아 RoadmapResult를 그 계정의 워크스페이스(Opportunity Map/Roadmap/팀원
+데이터베이스 + 대시보드 페이지)에 발행한다. 발행 직후 대시보드 집계 콜아웃도 한 번 새로고침한다.
 
-한 페이지 안에 모든 내용을 담는다 (task는 체크박스로 접었다 펼침 — blocks.py 참고).
-발행 후에는 실제로 생성된 체크박스/요약 블록의 ID를 다시 조회해서 DB에 저장해둔다.
-Notion은 체크박스를 체크해도 다른 블록을 자동으로 갱신해주지 않기 때문에, 나중에
-`progress.py`의 새로고침이 이 ID들로 체크 상태를 읽어와 요약을 다시 써준다.
+v0.9에서 "페이지+체크박스" 방식(옛 `blocks.py`)을 데이터베이스 upsert 방식(`sync.py`)으로 교체했다
+— 상세 설계는 `SPRINT1_FEATURE4_ROADMAP_GENERATOR.md` 9절 참고.
 """
 
 from app.contracts.goal import GoalDefinition
+from app.contracts.maturity import MaturityDiagnosis
+from app.contracts.onboarding import OnboardingData
 from app.contracts.research import ResearchContext
 from app.contracts.roadmap import RoadmapResult
 from app.core.config import settings
 from app.core.db import get_session
-from app.notion.blocks import RoadmapPageLayout, TaskBlockPosition, render_roadmap_page_blocks
-from app.notion.client import create_page, get_block_children
+from app.notion.progress import refresh_dashboard_stats
 from app.notion.repository import get_connection
-from app.notion.tracking_repository import TrackedTask, save_published_roadmap
+from app.notion.sync import sync_roadmap
 
 
-def _resolve_task_checkbox_id(
-    top_children: list[dict], position: TaskBlockPosition, headers: dict[str, str]
-) -> str:
-    block = top_children[position.top_level_index]
-    if not position.wrapped_in_column:
-        return block["id"]
-    column_list_children = get_block_children(block["id"], headers)
-    left_column_children = get_block_children(column_list_children[0]["id"], headers)
-    return left_column_children[0]["id"]
+def _headers_for(access_token: str) -> dict[str, str]:
+    return {
+        "Authorization": f"Bearer {access_token}",
+        "Notion-Version": settings.notion_api_version,
+        "Content-Type": "application/json",
+    }
 
 
 def publish_roadmap(
     goal: GoalDefinition,
     roadmap: RoadmapResult,
+    onboarding: OnboardingData,
     account_id: str,
-    research: ResearchContext | None = None,
     parent_page_id: str | None = None,
+    research: ResearchContext | None = None,
 ) -> dict:
     session = get_session()
     try:
         connection = get_connection(session, account_id)
+        if connection is None:
+            raise ValueError(
+                f"계정 '{account_id}'이 Notion과 연결되어 있지 않습니다. "
+                f"GET /notion/connect?account_id={account_id} 으로 먼저 연결하세요."
+            )
+
+        target_page_id = parent_page_id or connection.default_page_id
+        if not target_page_id:
+            raise ValueError(
+                "발행할 Notion 페이지를 찾을 수 없습니다 — Notion 연결 시 integration과 공유한 페이지가 없습니다."
+            )
+
+        workspace = sync_roadmap(
+            goal,
+            roadmap,
+            onboarding,
+            account_id,
+            target_page_id,
+            session,
+            _headers_for(connection.access_token),
+            research,
+        )
     finally:
         session.close()
 
-    if connection is None:
-        raise ValueError(
-            f"계정 '{account_id}'이 Notion과 연결되어 있지 않습니다. "
-            f"GET /notion/connect?account_id={account_id} 으로 먼저 연결하세요."
-        )
+    refresh_dashboard_stats(account_id)
 
-    target_page_id = parent_page_id or connection.default_page_id
-    if not target_page_id:
-        raise ValueError(
-            "발행할 Notion 페이지를 찾을 수 없습니다 — Notion 연결 시 integration과 공유한 페이지가 없습니다."
-        )
-
-    headers = {
-        "Authorization": f"Bearer {connection.access_token}",
-        "Notion-Version": settings.notion_api_version,
-        "Content-Type": "application/json",
-    }
-
-    title = f"AX 로드맵 — {goal.goal_text[:50]}"
-    layout = render_roadmap_page_blocks(goal, roadmap, research)
-    page = create_page(target_page_id, title, layout.blocks, headers)
-
-    if layout.task_positions:
-        _track_published_tasks(page["id"], account_id, layout, roadmap, headers)
-
-    return {"url": page["url"], "page_id": page["id"]}
+    return {"url": workspace.dashboard_url, "page_id": workspace.dashboard_page_id}
 
 
-def _track_published_tasks(
-    page_id: str,
+def publish_report(
+    goal: GoalDefinition,
+    onboarding: OnboardingData,
     account_id: str,
-    layout: RoadmapPageLayout,
-    roadmap: RoadmapResult,
-    headers: dict[str, str],
-) -> None:
-    top_children = get_block_children(page_id, headers)
+    diagnosis: MaturityDiagnosis | None = None,
+    roadmap: RoadmapResult | None = None,
+    parent_page_id: str | None = None,
+    research: ResearchContext | None = None,
+) -> dict:
+    """기능 2(진단) + 기능 4(로드맵)를 함께 발행한다.
 
-    stats_block_id = (
-        top_children[layout.stats_block_index]["id"] if layout.stats_block_index is not None else None
-    )
-    tracked_tasks = [
-        TrackedTask(
-            task_id=task.task_id,
-            title=task.title,
-            checkbox_block_id=_resolve_task_checkbox_id(
-                top_children, layout.task_positions[task.task_id], headers
-            ),
-        )
-        for task in roadmap.tasks
-        if task.task_id in layout.task_positions
-    ]
+    대시보드는 이제 Opportunity Map/Roadmap 데이터베이스 중심이라, 진단 결과는 아직 이 대시보드에
+    끼워 넣지 않는다(옵션이스 — SPRINT1_FEATURE4_ROADMAP_GENERATOR.md 9절 오픈 이슈). roadmap이
+    없으면 발행할 것이 없어 에러를 낸다(진단 전용 페이지는 이번 재설계 범위 밖).
+    """
+    if roadmap is None:
+        raise ValueError("roadmap 없이는 발행할 대상이 없습니다 — 새 대시보드는 로드맵 데이터베이스 중심입니다.")
 
-    session = get_session()
-    try:
-        save_published_roadmap(session, page_id, account_id, stats_block_id, tracked_tasks)
-    finally:
-        session.close()
+    return publish_roadmap(goal, roadmap, onboarding, account_id, parent_page_id, research)

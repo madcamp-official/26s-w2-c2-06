@@ -5,7 +5,8 @@ import json
 from pathlib import Path
 
 from app.contracts.goal import GoalDefinition
-from app.contracts.onboarding import OnboardingData
+from app.contracts.maturity import MaturityDiagnosis
+from app.contracts.onboarding import AiAdoptionLevel, OnboardingData, OrgEnvironment
 from app.contracts.research import ResearchContext, ResearchStatus
 from app.contracts.roadmap import ROLE_REASSIGNMENT_DISCLAIMER, RoleReassignmentSuggestion
 
@@ -35,6 +36,20 @@ def test_onboarding_fixture_is_valid():
     assert len(onboarding.repetitive_tasks) >= 1
 
 
+def test_onboarding_new_fields_are_backward_compatible():
+    """기능 1 정식화로 추가된 필드는 기본값이 있어, 이전(필드 없는) 데이터도 그대로 검증된다."""
+    onboarding = OnboardingData.model_validate(_load_fixture("onboarding_001.json"))
+    assert onboarding.ai_adoption_level == AiAdoptionLevel.NONE
+    assert onboarding.org_environment == OrgEnvironment()
+    assert onboarding.work_categories == []
+
+
+def test_maturity_diagnosis_fixture_is_valid():
+    diagnosis = MaturityDiagnosis.model_validate(_load_fixture("maturity_diagnosis_marketing.json"))
+    assert len(diagnosis.axis_scores) == 5
+    assert diagnosis.goal_id == "goal_marketing_001"
+
+
 def test_research_context_failed_status_allows_empty_findings():
     research = ResearchContext(
         goal_id="goal_001",
@@ -49,6 +64,7 @@ def test_research_context_failed_status_allows_empty_findings():
 
 def test_role_reassignment_suggestion_defaults_to_fixed_disclaimer():
     suggestion = RoleReassignmentSuggestion(
-        task_id="task_001", suggested_member="member_a", reason="strength match"
+        task_id="task_001", assigned_member_ids=["M1"], reason="strength match"
     )
     assert suggestion.disclaimer == ROLE_REASSIGNMENT_DISCLAIMER
+    assert suggestion.assigned_member_ids == ["M1"]

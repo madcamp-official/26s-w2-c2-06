@@ -2,9 +2,10 @@ import pytest
 
 import app.notion.publish as publish_module
 from app.contracts.goal import GoalDefinition, OrgConstraints
+from app.contracts.onboarding import OnboardingData
 from app.contracts.research import ResearchStatus
-from app.contracts.roadmap import Metric, RoadmapResult, Task
-from app.notion.blocks import render_roadmap_page_blocks
+from app.contracts.roadmap import RoadmapResult
+from app.notion.tracking_repository import WorkspaceRecord
 
 
 class _FakeSession:
@@ -24,16 +25,27 @@ def _goal() -> GoalDefinition:
     )
 
 
-def _task(task_id="task_001") -> Task:
-    return Task(
-        task_id=task_id,
-        title="t",
-        layer=1,
-        week=1,
-        difficulty="쉬움",
-        est_time="1시간",
-        expected_effect="효과",
-        failure_risk="위험",
+def _onboarding() -> OnboardingData:
+    return OnboardingData(team_size=3)
+
+
+def _roadmap() -> RoadmapResult:
+    return RoadmapResult(goal_id="goal_001", research_status=ResearchStatus.OK)
+
+
+def _workspace() -> WorkspaceRecord:
+    return WorkspaceRecord(
+        account_id="acc-1",
+        team_database_id="team-db",
+        team_data_source_id="team-ds",
+        opportunity_database_id="opp-db",
+        opportunity_data_source_id="opp-ds",
+        roadmap_database_id="roadmap-db",
+        roadmap_data_source_id="roadmap-ds",
+        dashboard_page_id="dash-page-id",
+        dashboard_url="https://notion.so/dash-page-id",
+        discovered_count_block_id="discovered-block",
+        applied_count_block_id="applied-block",
     )
 
 
@@ -46,112 +58,91 @@ def _patch_connection(monkeypatch, access_token="tok", default_page_id="default-
     )
 
 
-def test_publish_roadmap_without_tasks_returns_url_and_page_id_and_skips_tracking(monkeypatch):
-    captured = {}
+def test_publish_roadmap_uses_default_page_and_returns_dashboard_url(monkeypatch):
     _patch_connection(monkeypatch)
+    captured = {}
 
-    def fake_create_page(parent_page_id, title, blocks, headers):
+    def fake_sync_roadmap(goal, roadmap, onboarding, account_id, parent_page_id, session, headers, research=None):
         captured["parent_page_id"] = parent_page_id
+        captured["account_id"] = account_id
         captured["headers"] = headers
-        return {"id": "main-page-id", "url": "https://notion.so/main"}
+        return _workspace()
 
-    def fail_if_called(*args, **kwargs):
-        raise AssertionError("tasks가 없으면 get_block_children이 호출되면 안 됨")
+    monkeypatch.setattr(publish_module, "sync_roadmap", fake_sync_roadmap)
+    monkeypatch.setattr(publish_module, "refresh_dashboard_stats", lambda account_id: None)
 
-    monkeypatch.setattr(publish_module, "create_page", fake_create_page)
-    monkeypatch.setattr(publish_module, "get_block_children", fail_if_called)
+    result = publish_module.publish_roadmap(_goal(), _roadmap(), _onboarding(), account_id="acc-1")
 
-    roadmap = RoadmapResult(goal_id="goal_001", research_status=ResearchStatus.OK, tasks=[])
-    result = publish_module.publish_roadmap(_goal(), roadmap, account_id="acc-1")
-
-    assert result == {"url": "https://notion.so/main", "page_id": "main-page-id"}
+    assert result == {"url": "https://notion.so/dash-page-id", "page_id": "dash-page-id"}
     assert captured["parent_page_id"] == "default-page"
+    assert captured["account_id"] == "acc-1"
     assert captured["headers"]["Authorization"] == "Bearer tok"
 
 
 def test_publish_roadmap_prefers_explicit_parent_page_id(monkeypatch):
-    captured = {}
     _patch_connection(monkeypatch)
+    captured = {}
 
-    def fake_create_page(parent_page_id, title, blocks, headers):
+    def fake_sync_roadmap(goal, roadmap, onboarding, account_id, parent_page_id, session, headers, research=None):
         captured["parent_page_id"] = parent_page_id
-        return {"id": "p", "url": "u"}
+        return _workspace()
 
-    monkeypatch.setattr(publish_module, "create_page", fake_create_page)
+    monkeypatch.setattr(publish_module, "sync_roadmap", fake_sync_roadmap)
+    monkeypatch.setattr(publish_module, "refresh_dashboard_stats", lambda account_id: None)
 
-    roadmap = RoadmapResult(goal_id="goal_001", research_status=ResearchStatus.OK, tasks=[])
-    publish_module.publish_roadmap(_goal(), roadmap, account_id="acc-1", parent_page_id="explicit-page")
+    publish_module.publish_roadmap(
+        _goal(), _roadmap(), _onboarding(), account_id="acc-1", parent_page_id="explicit-page"
+    )
 
     assert captured["parent_page_id"] == "explicit-page"
+
+
+def test_publish_roadmap_refreshes_dashboard_stats_after_sync(monkeypatch):
+    _patch_connection(monkeypatch)
+    monkeypatch.setattr(publish_module, "sync_roadmap", lambda *a, **k: _workspace())
+
+    refreshed = {}
+    monkeypatch.setattr(
+        publish_module, "refresh_dashboard_stats", lambda account_id: refreshed.setdefault("account_id", account_id)
+    )
+
+    publish_module.publish_roadmap(_goal(), _roadmap(), _onboarding(), account_id="acc-1")
+
+    assert refreshed["account_id"] == "acc-1"
 
 
 def test_publish_roadmap_raises_when_account_not_connected(monkeypatch):
     monkeypatch.setattr(publish_module, "get_session", lambda: _FakeSession())
     monkeypatch.setattr(publish_module, "get_connection", lambda session, account_id: None)
 
-    roadmap = RoadmapResult(goal_id="goal_001", research_status=ResearchStatus.OK, tasks=[_task()])
     with pytest.raises(ValueError):
-        publish_module.publish_roadmap(_goal(), roadmap, account_id="acc-unknown")
+        publish_module.publish_roadmap(_goal(), _roadmap(), _onboarding(), account_id="acc-unknown")
 
 
 def test_publish_roadmap_raises_when_no_page_available(monkeypatch):
     _patch_connection(monkeypatch, default_page_id=None)
 
-    roadmap = RoadmapResult(goal_id="goal_001", research_status=ResearchStatus.OK, tasks=[_task()])
     with pytest.raises(ValueError):
-        publish_module.publish_roadmap(_goal(), roadmap, account_id="acc-1")
+        publish_module.publish_roadmap(_goal(), _roadmap(), _onboarding(), account_id="acc-1")
 
 
-def test_publish_roadmap_tracks_checkbox_ids_for_column_and_plain_tasks(monkeypatch):
-    _patch_connection(monkeypatch)
+def test_publish_report_raises_when_roadmap_missing():
+    with pytest.raises(ValueError):
+        publish_module.publish_report(_goal(), _onboarding(), account_id="acc-1", roadmap=None)
 
-    monkeypatch.setattr(
-        publish_module, "create_page", lambda *a, **k: {"id": "main-page-id", "url": "https://notion.so/main"}
+
+def test_publish_report_delegates_to_publish_roadmap(monkeypatch):
+    captured = {}
+
+    def fake_publish_roadmap(goal, roadmap, onboarding, account_id, parent_page_id=None, research=None):
+        captured["args"] = (goal, roadmap, onboarding, account_id, parent_page_id)
+        return {"url": "https://notion.so/dash-page-id", "page_id": "dash-page-id"}
+
+    monkeypatch.setattr(publish_module, "publish_roadmap", fake_publish_roadmap)
+
+    result = publish_module.publish_report(
+        _goal(), _onboarding(), account_id="acc-1", roadmap=_roadmap()
     )
 
-    # task_001은 지표가 있어서 column_list로, task_002는 지표가 없어서 순수 to_do로 렌더링됨
-    roadmap = RoadmapResult(
-        goal_id="goal_001",
-        research_status=ResearchStatus.OK,
-        tasks=[_task("task_001"), _task("task_002")],
-        metrics=[Metric(task_id="task_001", metric_name="m", baseline="b", target="t")],
-    )
-
-    # 실제 레이아웃 계산 결과(어떤 top-level 인덱스가 stats/task_001/task_002인지)를 그대로 써서
-    # top_children 목록을 만든다 — blocks.py 내부 순서를 이 테스트에서 다시 하드코딩하지 않기 위함.
-    layout = render_roadmap_page_blocks(_goal(), roadmap)
-    top_children = [{"id": f"placeholder-{i}"} for i in range(len(layout.blocks))]
-    top_children[layout.stats_block_index] = {"id": "stats-block-id"}
-    top_children[layout.task_positions["task_001"].top_level_index] = {"id": "col-list-id"}
-    top_children[layout.task_positions["task_002"].top_level_index] = {"id": "plain-todo-id"}
-
-    nested = {
-        "col-list-id": [{"id": "col-left-id"}, {"id": "col-right-id"}],
-        "col-left-id": [{"id": "checkbox-task-001-id"}],
-    }
-
-    def fake_get_block_children(block_id, headers):
-        if block_id == "main-page-id":
-            return top_children
-        return nested[block_id]
-
-    monkeypatch.setattr(publish_module, "get_block_children", fake_get_block_children)
-
-    saved = {}
-
-    def fake_save_published_roadmap(session, page_id, account_id, stats_block_id, tasks):
-        saved["page_id"] = page_id
-        saved["account_id"] = account_id
-        saved["stats_block_id"] = stats_block_id
-        saved["tasks"] = {t.task_id: t.checkbox_block_id for t in tasks}
-
-    monkeypatch.setattr(publish_module, "save_published_roadmap", fake_save_published_roadmap)
-
-    result = publish_module.publish_roadmap(_goal(), roadmap, account_id="acc-1")
-
-    assert result["page_id"] == "main-page-id"
-    assert saved["page_id"] == "main-page-id"
-    assert saved["account_id"] == "acc-1"
-    assert saved["stats_block_id"] == "stats-block-id"
-    assert saved["tasks"]["task_001"] == "checkbox-task-001-id"
-    assert saved["tasks"]["task_002"] == "plain-todo-id"
+    assert result == {"url": "https://notion.so/dash-page-id", "page_id": "dash-page-id"}
+    assert captured["args"][3] == "acc-1"

@@ -1,0 +1,82 @@
+{
+  "industry": "D2C 뷰티·리빙 커머스",
+  "team_size": 8,
+  "work_categories": ["마케팅/콘텐츠"],
+  "ai_adoption_level": "가끔 필요할 때 씀",
+  "has_ai_guideline": false,
+  "designated_ai_tools": ["없음"],
+  "external_ai_allowed": true,
+  "ai_usage_variance": "큼 — 2명 적극 활용, 3명 몇 번 써봄, 3명 미사용",
+  "task_details": [
+    {
+      "title": "SNS/블로그 카피 초안 작성",
+      "frequency": "매일",
+      "is_standardized": false,
+      "avg_time_minutes": 30,
+      "contains_sensitive_info": false,
+      "current_method": "담당자가 직접 작성"
+    },
+    {
+      "title": "고객 리뷰·SNS 언급 모니터링",
+      "frequency": "매일",
+      "is_standardized": false,
+      "avg_time_minutes": 60,
+      "contains_sensitive_info": false,
+      "current_method": "채널별로 수기 확인"
+    },
+    {
+      "title": "광고 소재 A/B 테스트 결과 정리",
+      "frequency": "주 1회 이상",
+      "is_standardized": true,
+      "avg_time_minutes": 90,
+      "contains_sensitive_info": false,
+      "current_method": "엑셀에 수치 수기 취합"
+    },
+    {
+      "title": "주간 캠페인 성과 리포트",
+      "frequency": "주 1회 이상",
+      "is_standardized": true,
+      "avg_time_minutes": 120,
+      "contains_sensitive_info": true,
+      "current_method": "대시보드 조회 후 엑셀·워드로 수기 정리"
+    },
+    {
+      "title": "경쟁사 벤치마킹·시장 조사",
+      "frequency": "월 1~3회",
+      "is_standardized": false,
+      "avg_time_minutes": 180,
+      "contains_sensitive_info": false,
+      "current_method": "웹 검색 결과를 수기로 정리"
+    },
+    {
+      "title": "보도자료·뉴스레터 초안",
+      "frequency": "월 1~3회",
+      "is_standardized": false,
+      "avg_time_minutes": 240,
+      "contains_sensitive_info": false,
+      "current_method": "담당자가 직접 작성"
+    },
+    {
+      "title": "캠페인 예산 집행 승인 문서",
+      "frequency": "주 1회 이상",
+      "is_standardized": true,
+      "avg_time_minutes": 60,
+      "contains_sensitive_info": true,
+      "current_method": "엑셀에 예산·단가 수기 작성"
+    }
+  ],
+  "member_tags": [
+    {
+      "member_id": "M1",
+      "strengths": ["카피라이팅", "브랜드 톤"],
+      "ai_comfort_level": "높음",
+      "workload_level": "중간"
+    },
+    {
+      "member_id": "M2",
+      "strengths": ["고객 리뷰 대응"],
+      "ai_comfort_level": "낮음",
+      "workload_level": "높음"
+    }
+  ]
+}

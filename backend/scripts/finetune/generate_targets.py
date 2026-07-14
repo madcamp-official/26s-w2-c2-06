@@ -57,8 +57,8 @@ def process_one(idx: int, scenario: dict) -> dict:
     stage_a_prompt = build_stage_a_prompt(goal, research, onboarding)
     draft = run_stage_a(client, goal, research, onboarding)
 
-    stage_b_prompt = build_stage_b_prompt(draft, goal)
-    result = run_stage_b(client, draft, goal, research.status)
+    stage_b_prompt = build_stage_b_prompt(draft, goal, onboarding)
+    result = run_stage_b(client, draft, goal, research, onboarding)
 
     return {
         "idx": idx,

@@ -1,0 +1,16 @@
+{
+  "goal_id": "goal_marketing_001",
+  "axis_scores": [
+    { "axis": "전략 명확성", "score": 2, "interpretation": "AI를 써야 한다는 공감은 있으나 무엇을 바꿀지 목표 문장이 없음" },
+    { "axis": "도구 활용도", "score": 2, "interpretation": "개인 계정 산발적 사용, 팀 표준 도구·프롬프트 없음" },
+    { "axis": "팀 수용력", "score": 2, "interpretation": "활용 수준 팀원 간 편차가 큼(양극화)" },
+    { "axis": "데이터 접근성", "score": 3, "interpretation": "캠페인 성과는 대시보드로 접근 가능, 리뷰 데이터는 흩어져 있음" },
+    { "axis": "평가 체계", "score": 1, "interpretation": "시간 절감을 측정하는 지표 자체가 없음" }
+  ],
+  "priority_axes": ["평가 체계", "전략 명확성", "도구 활용도"],
+  "summary": "관심은 있으나 실행 로드맵과 측정 지표가 없는 상태예요. 작은 업무 하나로 시작해 효과를 재보는 게 먼저예요.",
+  "benchmark": {
+    "comment": "국내 기업 응답자의 67.3%가 AX를 핵심 과제로 인식하지만 전사 내재화는 5.3%에 그친다",
+    "source": "원티드 AX 인사이트 리포트, 2026"
+  }
+}
