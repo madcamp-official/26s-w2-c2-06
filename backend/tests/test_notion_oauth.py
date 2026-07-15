@@ -1,6 +1,6 @@
 import app.notion.oauth as oauth_module
 from app.core.config import settings
-from app.notion.oauth import build_authorize_url, exchange_code_for_token, find_default_page_id
+from app.notion.oauth import build_authorize_url, exchange_code_for_token, list_shared_pages
 
 
 class _FakeHttpResponse:
@@ -47,20 +47,39 @@ def test_exchange_code_for_token_uses_basic_auth(monkeypatch):
     assert captured["json"]["grant_type"] == "authorization_code"
 
 
-def test_find_default_page_id_returns_first_result(monkeypatch):
+def test_list_shared_pages_returns_id_and_title_for_each_result(monkeypatch):
     def fake_post(url, headers, json, timeout):
         assert "search" in url
-        return _FakeHttpResponse({"results": [{"id": "page-1"}, {"id": "page-2"}]})
+        return _FakeHttpResponse({
+            "results": [
+                {"id": "page-1", "properties": {"title": {"title": [{"plain_text": "노션 API 테스트용"}]}}},
+                {"id": "page-2", "properties": {"title": {"title": [{"plain_text": "Template Example"}]}}},
+            ]
+        })
 
     monkeypatch.setattr(oauth_module.httpx, "post", fake_post)
 
-    assert find_default_page_id("some-token") == "page-1"
+    pages = list_shared_pages("some-token")
+
+    assert pages == [
+        {"id": "page-1", "title": "노션 API 테스트용"},
+        {"id": "page-2", "title": "Template Example"},
+    ]
 
 
-def test_find_default_page_id_returns_none_when_no_results(monkeypatch):
+def test_list_shared_pages_falls_back_to_placeholder_when_title_empty(monkeypatch):
+    def fake_post(url, headers, json, timeout):
+        return _FakeHttpResponse({"results": [{"id": "page-1", "properties": {"title": {"title": []}}}]})
+
+    monkeypatch.setattr(oauth_module.httpx, "post", fake_post)
+
+    assert list_shared_pages("some-token") == [{"id": "page-1", "title": "(제목 없음)"}]
+
+
+def test_list_shared_pages_returns_empty_list_when_no_results(monkeypatch):
     def fake_post(url, headers, json, timeout):
         return _FakeHttpResponse({"results": []})
 
     monkeypatch.setattr(oauth_module.httpx, "post", fake_post)
 
-    assert find_default_page_id("some-token") is None
+    assert list_shared_pages("some-token") == []

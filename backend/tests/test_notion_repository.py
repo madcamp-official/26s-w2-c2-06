@@ -3,7 +3,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.core.db import Base
-from app.notion.repository import delete_connection, get_connection, save_connection
+from app.notion.repository import delete_connection, get_connection, save_connection, set_default_page
 
 
 @pytest.fixture()
@@ -64,3 +64,19 @@ def test_delete_connection_removes_existing_and_reports_true(session):
 
 def test_delete_connection_reports_false_when_nothing_to_delete(session):
     assert delete_connection(session, "no-such-account") is False
+
+
+def test_set_default_page_updates_existing_connection(session):
+    save_connection(
+        session, account_id="acc-1", access_token="tok-1", workspace_id="ws-1", bot_id="bot-1",
+        default_page_id="page-1",
+    )
+
+    updated = set_default_page(session, "acc-1", "page-2")
+
+    assert updated.default_page_id == "page-2"
+    assert get_connection(session, "acc-1").default_page_id == "page-2"
+
+
+def test_set_default_page_returns_none_when_no_connection(session):
+    assert set_default_page(session, "no-such-account", "page-1") is None
