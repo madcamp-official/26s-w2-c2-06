@@ -104,6 +104,39 @@ def test_publish_endpoint_returns_400_with_message_when_account_not_connected(mo
     assert "연결되어 있지 않습니다" in response.json()["detail"]
 
 
+def test_publish_endpoint_returns_502_with_notion_error_body_on_api_failure(monkeypatch):
+    """Notion API 자체가 요청을 거절하면(예: 스키마 검증 실패) 예전엔 그냥 500으로 뭉개져서
+    서버 로그 없이는 원인을 알 수 없었다 — 이제 Notion이 돌려준 에러 바디를 그대로 502 응답의
+    detail에 담아 브라우저 Network 탭에서 바로 보이게 한다."""
+    import httpx
+
+    def fake_publish_roadmap(goal, roadmap, onboarding, account_id, parent_page_id=None, research=None):
+        request = httpx.Request("PATCH", "https://api.notion.com/v1/views/view-1")
+        response = httpx.Response(400, request=request, json={"message": "x_axis.type should be defined"})
+        # app/notion/client.py의 _raise_for_status가 실제로 만드는 형태(응답 바디를 메시지에
+        # 이어붙임)를 그대로 흉내낸다 — 라우터는 이미 그렇게 만들어진 메시지를 그대로 전달할 뿐이다.
+        raise httpx.HTTPStatusError(
+            "400 Bad Request -> {'message': 'x_axis.type should be defined'}", request=request, response=response
+        )
+
+    monkeypatch.setattr(roadmap_router_module, "run_research", lambda goal: None)
+    monkeypatch.setattr(roadmap_router_module, "publish_roadmap", fake_publish_roadmap)
+
+    client = TestClient(app)
+    payload = {
+        "goal": _load("goal_001.json"),
+        "roadmap": RoadmapResult(goal_id="goal_001", research_status=ResearchStatus.OK).model_dump(
+            mode="json"
+        ),
+        "onboarding": _load("onboarding_001.json"),
+    }
+
+    response = client.post("/roadmap/publish", json=payload)
+
+    assert response.status_code == 502
+    assert "x_axis.type should be defined" in response.json()["detail"]
+
+
 def test_generate_and_publish_endpoint_calls_run_research_once_and_returns_notion_url(monkeypatch):
     captured = {"run_research_calls": 0}
     fake_research = ResearchContext(
