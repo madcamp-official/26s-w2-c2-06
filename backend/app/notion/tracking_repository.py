@@ -22,8 +22,9 @@ class WorkspaceRecord:
     roadmap_data_source_id: str
     dashboard_page_id: str
     dashboard_url: str
-    discovered_count_block_id: str | None
-    applied_count_block_id: str | None
+    goal_callout_block_id: str | None
+    maturity_database_id: str | None = None
+    maturity_data_source_id: str | None = None
 
 
 def get_workspace(session: Session, account_id: str) -> WorkspaceRecord | None:
@@ -40,8 +41,9 @@ def get_workspace(session: Session, account_id: str) -> WorkspaceRecord | None:
         roadmap_data_source_id=row.roadmap_data_source_id,
         dashboard_page_id=row.dashboard_page_id,
         dashboard_url=row.dashboard_url,
-        discovered_count_block_id=row.discovered_count_block_id,
-        applied_count_block_id=row.applied_count_block_id,
+        goal_callout_block_id=row.goal_callout_block_id,
+        maturity_database_id=row.maturity_database_id,
+        maturity_data_source_id=row.maturity_data_source_id,
     )
 
 
@@ -55,14 +57,16 @@ def save_workspace(session: Session, record: WorkspaceRecord) -> None:
     session.commit()
 
 
-def update_dashboard_stat_blocks(
-    session: Session, account_id: str, discovered_block_id: str, applied_block_id: str
+def save_maturity_database(
+    session: Session, account_id: str, database_id: str, data_source_id: str
 ) -> None:
+    """"AX 성숙도 진단" DB는 첫 진단 발행 시점에만 지연 생성되므로, 워크스페이스 최초 생성 이후
+    별도로 ID를 채워 넣는다(sync.sync_diagnosis 참고)."""
     workspace = session.get(NotionWorkspace, account_id)
     if workspace is None:
         return
-    workspace.discovered_count_block_id = discovered_block_id
-    workspace.applied_count_block_id = applied_block_id
+    workspace.maturity_database_id = database_id
+    workspace.maturity_data_source_id = data_source_id
     session.commit()
 
 

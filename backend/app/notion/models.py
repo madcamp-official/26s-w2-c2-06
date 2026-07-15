@@ -3,7 +3,11 @@
 v0.9(9절)에서 "페이지+체크박스" 방식을 "Opportunity Map/Roadmap/팀원 데이터베이스" 방식으로
 재설계하면서 `PublishedRoadmap`/`PublishedRoadmapTask`(체크박스 블록 ID 추적)를 걷어내고
 아래 4개 테이블로 교체했다. Notion 쪽에 "이 값으로 조회"할 방법이 마땅치 않은 조합(계정별
-데이터베이스 ID, work_item_id/task_id/member_id별 페이지 ID)이라 전부 우리 쪽에서 기억한다."""
+데이터베이스 ID, work_item_id/task_id/member_id별 페이지 ID)이라 전부 우리 쪽에서 기억한다.
+
+QA_amendments 2절 반영(2026-07-15): 발견/적용 수 콜아웃 2개(discovered/applied_count_block_id)를
+없애고 목표 콜아웃 1개(goal_callout_block_id)로 교체 — 재발행마다 목표 문구를 최신으로 갱신한다.
+"AX 성숙도 진단" DB(maturity_*)는 진단이 있을 때만 최초 1회 지연 생성되므로 nullable이다."""
 
 from datetime import datetime, timezone
 
@@ -43,8 +47,9 @@ class NotionWorkspace(Base):
     roadmap_data_source_id: Mapped[str] = mapped_column(String, nullable=False)
     dashboard_page_id: Mapped[str] = mapped_column(String, nullable=False)
     dashboard_url: Mapped[str] = mapped_column(String, nullable=False)
-    discovered_count_block_id: Mapped[str | None] = mapped_column(String, nullable=True)
-    applied_count_block_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    goal_callout_block_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    maturity_database_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    maturity_data_source_id: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )

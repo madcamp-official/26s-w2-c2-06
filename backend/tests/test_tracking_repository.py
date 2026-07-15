@@ -9,6 +9,7 @@ from app.notion.tracking_repository import (
     get_task_page_id,
     get_work_item_page_id,
     get_workspace,
+    save_maturity_database,
     save_member_page,
     save_task_page,
     save_work_item_page,
@@ -37,8 +38,7 @@ def _workspace_record(account_id: str = "acc-1") -> WorkspaceRecord:
         roadmap_data_source_id="roadmap-ds",
         dashboard_page_id="dash-page",
         dashboard_url="https://notion.so/dash-page",
-        discovered_count_block_id="discovered-block",
-        applied_count_block_id="applied-block",
+        goal_callout_block_id="goal-block",
     )
 
 
@@ -55,11 +55,11 @@ def test_save_then_get_workspace(session):
 def test_save_workspace_upserts_existing_record(session):
     save_workspace(session, _workspace_record())
     updated = _workspace_record()
-    updated.discovered_count_block_id = "new-block"
+    updated.goal_callout_block_id = "new-block"
     save_workspace(session, updated)
 
     record = get_workspace(session, "acc-1")
-    assert record.discovered_count_block_id == "new-block"
+    assert record.goal_callout_block_id == "new-block"
 
 
 def test_get_workspace_returns_none_when_missing(session):
@@ -86,3 +86,19 @@ def test_task_page_save_then_get_scoped_by_goal(session):
 
     assert get_task_page_id(session, "acc-1", "goal_001", "task_001") == "task-page-1"
     assert get_task_page_id(session, "acc-1", "goal_002", "task_001") is None
+
+
+def test_save_maturity_database_updates_existing_workspace(session):
+    save_workspace(session, _workspace_record())
+
+    save_maturity_database(session, "acc-1", "maturity-db", "maturity-ds")
+
+    record = get_workspace(session, "acc-1")
+    assert record.maturity_database_id == "maturity-db"
+    assert record.maturity_data_source_id == "maturity-ds"
+
+
+def test_save_maturity_database_noop_when_workspace_missing(session):
+    # 워크스페이스가 아예 없으면 조용히 무시한다(있을 수 없는 상태를 방어)
+    save_maturity_database(session, "no-such-account", "maturity-db", "maturity-ds")
+    assert get_workspace(session, "no-such-account") is None

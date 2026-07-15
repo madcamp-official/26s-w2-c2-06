@@ -101,6 +101,28 @@ INTERVIEW_SCRIPT: list[InterviewPart] = [
                     "기타",
                 ],
             ),
+            # QA_amendments 1절 — 팀원 표를 기본 정보로 이동(예전엔 "팀원 태깅" 파트가 따로 있었다).
+            # 팀장(본인)을 기본 행으로 넣어두고 행을 추가하는 식으로 받는다 — 닉네임/담당 업무/
+            # AI 수준/업무과중/비고 5개 칼럼. 팀원 간 AI 활용 편차(선택)도 여기로 함께 옮겼다
+            # (예전엔 "조직 환경" 파트에 있었다).
+            Question(
+                key="member_tags",
+                prompt="팀원별로 닉네임, 담당 업무, AI 수준, 지금 업무과중 정도, 비고를 적어주세요.",
+                type=QuestionType.TEXT,
+                help_text=(
+                    "팀장님(본인)을 첫 행으로 기본 포함하고, 행을 추가해 팀원을 더 적어주세요. "
+                    "이름 대신 익명 식별자(예: M1, M2)를 쓰고, 역할 재분배 제안(4.4)에만 쓰이며 "
+                    "인사평가에는 절대 쓰지 않아요 (SPEC 2.6)."
+                ),
+                optional=True,
+            ),
+            Question(
+                key="ai_usage_variance",
+                prompt="팀원들 사이에 AI를 쓰는 정도 차이가 큰가요?",
+                type=QuestionType.TEXT,
+                help_text="예: '2명은 이미 잘 쓰고, 3명은 안 씀' 처럼 편차를 적어주세요.",
+                optional=True,
+            ),
         ],
     ),
     InterviewPart(
@@ -109,9 +131,11 @@ INTERVIEW_SCRIPT: list[InterviewPart] = [
         questions=[
             Question(
                 key="ai_adoption_level",
-                prompt="팀장님은 평소 업무에 AI를 어느 정도 쓰시나요?",
+                # QA_amendments 1절 — "팀장님이 아닌 팀이 어느 정도 쓰는지로 수정"
+                prompt="팀은 평소 업무에 AI를 어느 정도 쓰나요?",
                 type=QuestionType.SINGLE_CHOICE,
                 choices=_AI_LEVELS,
+                help_text="팀장님 개인이 아니라 팀 전체를 기준으로 골라주세요.",
             ),
         ],
     ),
@@ -120,15 +144,17 @@ INTERVIEW_SCRIPT: list[InterviewPart] = [
         title="조직 환경",
         questions=[
             Question(
-                key="has_ai_guideline",
-                prompt="회사에 AI 사용 가이드라인이 있나요?",
-                type=QuestionType.BOOLEAN,
-            ),
-            Question(
                 key="designated_ai_tools",
-                prompt="사내에서 공식으로 지정한 AI 도구가 있나요? 있다면 적어주세요.",
+                prompt="회사가 지원하는 AI가 있나요? 있다면 어떤 제품인지 적어주세요.",
                 type=QuestionType.MULTI_CHOICE,
                 choices=["Copilot", "ChatGPT Enterprise", "Gemini", "사내 자체 도구", "없음"],
+                optional=True,
+            ),
+            Question(
+                key="erp_data_integrated",
+                prompt="그 AI가 ERP나 사내 데이터와 연결되어 있나요?",
+                type=QuestionType.BOOLEAN,
+                help_text="연동되어 있으면 로드맵을 만들 때 그 시스템을 활용하는 task를 우선 제안해요.",
                 optional=True,
             ),
             Question(
@@ -137,11 +163,9 @@ INTERVIEW_SCRIPT: list[InterviewPart] = [
                 type=QuestionType.BOOLEAN,
             ),
             Question(
-                key="ai_usage_variance",
-                prompt="팀원들 사이에 AI를 쓰는 정도 차이가 큰가요?",
-                type=QuestionType.TEXT,
-                help_text="예: '2명은 이미 잘 쓰고, 3명은 안 씀' 처럼 편차를 적어주세요.",
-                optional=True,
+                key="has_ai_guideline",
+                prompt="회사에 AI 사용 가이드라인이 있나요?",
+                type=QuestionType.BOOLEAN,
             ),
         ],
     ),
@@ -157,22 +181,6 @@ INTERVIEW_SCRIPT: list[InterviewPart] = [
                     "'자동화할 업무'를 바로 떠올리기는 어려우니, 그냥 하루 일과를 이야기해주시면 "
                     "저희가 반복되는 업무를 뽑아 하나씩 여쭤볼게요."
                 ),
-            ),
-        ],
-    ),
-    InterviewPart(
-        key="member_tags",
-        title="팀원 태깅 (선택)",
-        questions=[
-            Question(
-                key="member_tags",
-                prompt=(
-                    "팀원별로 강점 영역, AI를 편하게 쓰는 정도, 지금 업무 부담을 간단히 태깅해주세요. "
-                    "이름 대신 익명 식별자(예: M1, M2)로 적어주세요."
-                ),
-                type=QuestionType.TEXT,
-                help_text="역할 재분배 제안(4.4)에만 쓰이고, 인사평가에는 절대 쓰지 않아요 (SPEC 2.6).",
-                optional=True,
             ),
         ],
     ),

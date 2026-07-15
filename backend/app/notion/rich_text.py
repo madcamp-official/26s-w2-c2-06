@@ -63,8 +63,11 @@ def heading3(content: str) -> dict:
     return {"type": "heading_3", "heading_3": {"rich_text": [text(content)]}}
 
 
-def callout(content: str, icon: str = "💡") -> dict:
-    return {"type": "callout", "callout": {"rich_text": [text(content)], "icon": {"emoji": icon}}}
+def callout(content: str, icon: str = "💡", color: str | None = None) -> dict:
+    block = {"type": "callout", "callout": {"rich_text": [text(content)], "icon": {"emoji": icon}}}
+    if color:
+        block["callout"]["color"] = color
+    return block
 
 
 def bulleted(content: str) -> dict:

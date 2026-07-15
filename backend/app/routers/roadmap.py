@@ -4,7 +4,6 @@ from pydantic import BaseModel
 from app.contracts.goal import GoalDefinition
 from app.contracts.onboarding import OnboardingData
 from app.contracts.roadmap import RoadmapResult
-from app.notion.progress import refresh_dashboard_stats
 from app.notion.publish import publish_roadmap
 from app.research import run_research
 from app.roadmap import generate_roadmap
@@ -33,13 +32,6 @@ class GenerateAndPublishRequest(GenerateRoadmapRequest):
 class PublishRoadmapResponse(BaseModel):
     notion_url: str
     page_id: str
-
-
-class RefreshProgressResponse(BaseModel):
-    discovered: int
-    total_work_items: int
-    applied: int
-    total_tasks: int
 
 
 @router.post("/generate", response_model=RoadmapResult)
@@ -79,10 +71,3 @@ def generate_and_publish(payload: GenerateAndPublishRequest) -> PublishRoadmapRe
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     return PublishRoadmapResponse(notion_url=result["url"], page_id=result["page_id"])
-
-
-@router.post("/{account_id}/refresh-progress", response_model=RefreshProgressResponse)
-def refresh(account_id: str) -> RefreshProgressResponse:
-    """Opportunity Map/Roadmap 데이터베이스를 다시 읽어와 대시보드 집계 콜아웃을 갱신한다 (수동 호출)."""
-    result = refresh_dashboard_stats(account_id)
-    return RefreshProgressResponse(**result)

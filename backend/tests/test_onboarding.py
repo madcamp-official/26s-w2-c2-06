@@ -16,19 +16,28 @@ def _load(name: str) -> dict:
     return json.loads((FIXTURES_DIR / name).read_text())
 
 
-def test_interview_script_has_five_spec_parts():
+def test_interview_script_has_four_spec_parts():
     parts = get_interview_script()
     keys = [p.key for p in parts]
+    # QA_amendments 1절 — 팀원 태깅은 더 이상 독립 파트가 아니라 "기본 정보" 안의 팀원 표로
+    # 편입됐다(팀장 본인을 기본 행으로 포함, 행 추가 가능).
     assert keys == [
         "basic_info",
         "ai_adoption",
         "org_environment",
         "repetitive_tasks",
-        "member_tags",
     ]
     # 반복 업무 파트는 추상적 질문이 아니라 '하루를 시간순으로' 자유서술로 유도한다 (SPEC 4.1)
     task_part = next(p for p in parts if p.key == "repetitive_tasks")
     assert task_part.questions[0].type == QuestionType.TASK_NARRATIVE
+
+    basic_info = next(p for p in parts if p.key == "basic_info")
+    basic_info_keys = [q.key for q in basic_info.questions]
+    assert "member_tags" in basic_info_keys
+    assert "ai_usage_variance" in basic_info_keys
+
+    org_environment = next(p for p in parts if p.key == "org_environment")
+    assert "erp_data_integrated" in [q.key for q in org_environment.questions]
 
 
 def test_build_onboarding_from_confirmed_answers_maps_org_environment():

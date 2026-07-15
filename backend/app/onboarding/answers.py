@@ -32,6 +32,7 @@ class InterviewAnswers(BaseModel):
     # 조직 환경
     has_ai_guideline: bool = False
     designated_ai_tools: list[str] = Field(default_factory=list)
+    erp_data_integrated: bool = False
     external_ai_allowed: bool = False
     ai_usage_variance: str = ""
 

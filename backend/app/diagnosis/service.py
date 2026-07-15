@@ -42,6 +42,19 @@ def _security_level(onboarding: OnboardingData) -> str:
     return "low"
 
 
+def _integrated_systems(onboarding: OnboardingData, draft: DiagnosisDraft) -> list[str]:
+    """QA_amendments 1절 — 온보딩 조직 환경 질문("ERP나 데이터가 연결되어 있는지")에서 받은
+    사실값을 목표 정의서의 조직 제약에 결정론적으로 반영한다(LLM이 지어내지 않게, SPEC 2.6과
+    같은 원칙). 자유서술(반복 업무 현재 처리 방식)에서 LLM이 추가로 짚어낸 연동 시스템(예:
+    task별 "대시보드" 언급)은 보조 신호로 계속 병합한다 — 온보딩 질문이 놓친 시스템까지 덮는다."""
+    systems = list(draft.integrated_systems)
+    if onboarding.org_environment.erp_data_integrated:
+        for tool in onboarding.org_environment.designated_ai_tools or ["사내 AI 도구"]:
+            if tool not in systems:
+                systems.append(f"{tool} (ERP·사내 데이터 연동)")
+    return systems
+
+
 def _order_axis_scores(draft: DiagnosisDraft) -> DiagnosisDraft:
     """축 점수를 SPEC 4.2의 정규 순서로 정렬한다 (레이더 차트 축 순서 고정)."""
     by_axis = {s.axis: s for s in draft.axis_scores}
@@ -77,7 +90,7 @@ def diagnose_and_set_goal(
         goal_text=draft.goal_text,
         org_constraints=OrgConstraints(
             allowed_tools=env.designated_ai_tools,
-            integrated_systems=draft.integrated_systems,
+            integrated_systems=_integrated_systems(onboarding, draft),
             external_ai_allowed=env.external_ai_allowed,
             security_level=_security_level(onboarding),
         ),
