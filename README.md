@@ -22,8 +22,8 @@
 
 | 이름 | 학교 | GitHub | 역할 |
 |---|---|---|---|
-| 임유빈 | 서울대학교 | [@lunar-yoobin](https://github.com/lunar-yoobin) | 온보딩 인터뷰, AX 성숙도 진단 및 목표 설정, BP 리서치 구현, Notion 응답 템플릿 제작 |
-| 김경원 | 한양대학교 | [@kkw610](https://github.com/kkw610) | 온보딩 인터뷰 내의 vLLM 학습, 맞춤 로드맵 + 평가 지표 생성, Notion 자동 발행 구현, 배포 및 인프라 |
+| 임유빈 | 서울대학교 | [@lunar-yoobin](https://github.com/lunar-yoobin) | 온보딩 인터뷰/AX 성숙도 진단 및 목표 설정/BP 리서치 구현, Notion 응답 템플릿 제작 |
+| 김경원 | 한양대학교 | [@kkw610](https://github.com/kkw610) | 온보딩 인터뷰 내의 vLLM 학습, 맞춤 로드맵+평가 지표 생성/Notion 자동 발행 구현, 배포 및 인프라 |
 
 ---
 
