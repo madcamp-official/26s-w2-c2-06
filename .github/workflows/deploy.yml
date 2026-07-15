@@ -1,0 +1,48 @@
+name: Deploy to VM
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "backend/**"
+      - ".github/workflows/deploy.yml"
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up SSH agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.DEPLOY_SSH_KEY }}
+
+      - name: Add VM to known_hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H "${{ secrets.DEPLOY_HOST }}" >> ~/.ssh/known_hosts
+
+      # .env는 VM에만 있는 운영 비밀값이라 절대 동기화 대상에서 제외한다 — 매 배포마다 덮어쓰면 안 됨.
+      - name: Sync backend code to VM
+        run: |
+          rsync -az --delete \
+            --exclude='.env' \
+            --exclude='.venv' \
+            --exclude='__pycache__' \
+            --exclude='.git' \
+            --exclude='*.pyc' \
+            --exclude='.pytest_cache' \
+            --exclude='scripts/finetune' \
+            backend/ "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:/opt/ai-champion/backend/"
+
+      - name: Rebuild and restart app container
+        run: |
+          ssh "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" \
+            "cd /opt/ai-champion/backend && docker compose build app && docker compose up -d --force-recreate app"
+
+      - name: Health check
+        run: |
+          sleep 5
+          curl -sf https://ai-champion.madcamp-kaist.org/health
