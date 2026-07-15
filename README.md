@@ -27,6 +27,18 @@
 
 ---
 
+## 배포
+
+**운영 주소**: https://ai-champion.madcamp-kaist.org
+
+- VM: KCLOUD VM(`camp-19`, KCLOUD 내부망) + Cloudflare Tunnel(`ai-champion` 서브도메인 → VM `localhost:8000`)
+- 앱: `backend/docker-compose.yml`(app + db + redis)
+- **자동 배포**: GitHub Actions가 VM에 직접 접속하는 방식이 아니다 — KCLOUD 내부망이라 GitHub 호스팅 러너에서 SSH가 닿지 않는다. 대신 VM 자체에서 systemd 타이머(`ai-champion-deploy.timer`)가 1분마다 `origin/main`을 폴링해서, 변경이 있으면 VM이 스스로 `git pull` → `docker compose build/up`까지 수행한다(`/opt/ai-champion/deploy.sh`).
+- `.github/workflows/test.yml`은 배포가 아니라 push/PR마다 `backend/` 테스트만 돌려서 main이 깨진 채로 merge되지 않게 한다.
+- `.env`(GEMINI/NOTION/TAVILY 키 등)는 VM의 `/opt/ai-champion/prod.env`에만 있고 git에 올라가지 않는다 — 배포 스크립트가 매번 이 파일을 복사해 넣는다.
+
+---
+
 ## 선택 옵션
 
 - [ ] 실시간 인터랙션
