@@ -22,20 +22,14 @@
 
 | 이름 | 학교 | GitHub | 역할 |
 |---|---|---|---|
-| 임유빈 | 서울대학교 | [@lunar-yoobin](https://github.com/lunar-yoobin) | FE |
-| 김경원 | 한양대학교 | [@kkw610](https://github.com/kkw610) | BE |
+| 임유빈 | 서울대학교 | [@lunar-yoobin](https://github.com/lunar-yoobin) | 온보딩 인터뷰, AX 성숙도 진단 및 목표 설정, BP 리서치 구현, Notion 응답 템플릿 제작 |
+| 김경원 | 한양대학교 | [@kkw610](https://github.com/kkw610) | 온보딩 인터뷰 내의 vLLM 학습, 맞춤 로드맵 + 평가 지표 생성, Notion 자동 발행 구현, 배포 및 인프라 |
 
 ---
 
 ## 배포
 
 **운영 주소**: https://ai-champion.madcamp-kaist.org
-
-- VM: KCLOUD VM(`camp-19`, KCLOUD 내부망) + Cloudflare Tunnel(`ai-champion` 서브도메인 → VM `localhost:8000`)
-- 앱: `backend/docker-compose.yml`(app + db + redis)
-- **자동 배포**: GitHub Actions가 VM에 직접 접속하는 방식이 아니다 — KCLOUD 내부망이라 GitHub 호스팅 러너에서 SSH가 닿지 않는다. 대신 VM 자체에서 systemd 타이머(`ai-champion-deploy.timer`)가 1분마다 `origin/main`을 폴링해서, 변경이 있으면 VM이 스스로 `git pull` → `docker compose build/up`까지 수행한다(`/opt/ai-champion/deploy.sh`).
-- `.github/workflows/test.yml`은 배포가 아니라 push/PR마다 `backend/` 테스트만 돌려서 main이 깨진 채로 merge되지 않게 한다.
-- `.env`(GEMINI/NOTION/TAVILY 키 등)는 VM의 `/opt/ai-champion/prod.env`에만 있고 git에 올라가지 않는다 — 배포 스크립트가 매번 이 파일을 복사해 넣는다.
 
 ---
 
@@ -49,19 +43,17 @@
 
 ## 기획안
 
-- **산출물 주제:** AI Champion - AX(AI 전환) 도입 초기 단계의 "개인 중간관리자"를 위한 코칭 어시스턴트
-- **제작 목적:** 전사 단위 컨설팅이 아니라, 관리자 한 사람의 의지만으로 자기 팀 단위에서 AI 활용을 시작·실험·검증할 수 있도록 돕는다. AI 만능주의를 경계해 "생성형 AI로 풀 문제가 맞는지"부터 판정하고, 아니라면 대안(자동화 템플릿·현행 유지)을 제안한다.
+- **산출물 주제:** AI Champion - AX(AI 전환) 도입 초기 단계의 '개인 중간관리자'를 위한 코칭 어시스턴트
+- **제작 목적:** 전사 단위 컨설팅이 아니라, 관리자 한 사람의 의지만으로 자기 팀 단위에서 AI 활용을 시작·실험·검증할 수 있도록 돕는다. AI 만능주의를 경계해 '생성형 AI로 풀 문제가 맞는지'부터 판정하고, 아니라면 대안(자동화 템플릿·현행 유지)을 제안한다.
 - **선택 옵션:** LLM Wrapper (Gemini API)
-- **핵심 구현 요소** (`docs/SPEC.md` 4장 — 6개 기능 skeleton):
+- **핵심 구현 요소**
   1. 온보딩 인터뷰: 업종/팀 규모/AI 활용 수준/조직 환경 + 반복 업무를 자유서술로 받아 LLM이 구조화
   2. AX 성숙도 진단 및 목표 설정: 5축(전략 명확성/도구 활용도/팀 수용력/데이터 접근성/평가 체계) 진단 + 목표 정의서 생성
   3. BP 리서치 엔진: Semantic Scholar·arXiv·GitHub·Tavily 등 다중 소스 실시간 조회(사전 구축 corpus 없음) — 사용자에게 직접 노출되지 않고 4번의 근거로만 쓰임
   4. 맞춤 로드맵 + 평가 지표 생성: AI 적합성 판정(빈도×정형성 매트릭스 + 게이트) → Layer 분류 → task 분해 → 역할 재분배 제안 → 지표 설계, 리서치 출처를 함께 노출
-  5. 로드맵 실행 트래킹 / 주간 코칭 및 평가: (설계 단계, 미구현 — SPEC 4.5)
-  6. Bottom-up 리포트 생성: (설계 단계, 미구현 — SPEC 4.6)
   - 위 산출물을 Notion 워크스페이스(팀원 DB·Opportunity Map DB·Roadmap DB + 진행률/적합성 분포 차트)로 자동 발행
 - **사용 / 시연 시나리오:** 관리자가 온보딩 질문(또는 하루 업무 자유서술)에 답변 → LLM이 반복 업무를 구조화 → 5축 성숙도 진단과 목표 문장 생성 → 목표를 근거로 실시간 리서치 → AI 적합성 판정과 함께 이번 주 실행 가능한 로드맵 생성 → 결과를 Notion 대시보드로 발행
-- **팀원별 역할:** FE(임유빈) / BE·인프라(김경원, 아래 표 참고)
+- **팀원별 역할:** FE(임유빈) / BE·인프라(김경원)
 
 ### 개발 일정
 
@@ -86,8 +78,6 @@
 | 3. BP 리서치 엔진 | Semantic Scholar·arXiv·GitHub·Tavily 다중 소스 실시간 조회, 4번에만 전달(비노출) | 필수 | ✅ 구현 완료 |
 | 4. 맞춤 로드맵 + 평가 지표 생성 | AI 적합성 판정(매트릭스+게이트) → Layer 분류 → task 분해 → 역할 재분배 제안 → 지표 설계, 리서치 출처 노출 | 필수 | ✅ 구현 완료 |
 | Notion 자동 발행 | 팀원/Opportunity Map/Roadmap DB + 적합성 분포·진행률·AX 적용 현황 차트 자동 생성 | 필수 | ✅ 구현 완료 |
-| 5. 로드맵 실행 트래킹 / 주간 코칭 | 진행률 체크, 지속적 발견 루프, 팀 자산화 저장소 | 선택 | 설계만 완료(`SPEC.md` 4.5) |
-| 6. Bottom-up 리포트 생성 | 경영진/동료 대상 설득용 성과 요약 리포트 | 선택 | 설계만 완료(`SPEC.md` 4.6) |
 
 ---
 
@@ -136,7 +126,6 @@
 <!-- Figma 링크, 화면 이미지, CLI 사용 예시, 앱 화면 등 -->
 - 백엔드 내장 데모 페이지(`backend/app/static/index.html`, `/`): 온보딩 입력 폼(칩 선택 + 반복 업무 표) → "리포트 생성" → 5축 진단 게이지·목표·적합성 판정·주차별 로드맵 카드 렌더링 → "Notion에 발행" 버튼으로 실제 워크스페이스에 발행
 - Notion 발행 결과: "AX 대시보드" 페이지(발견한 Opportunity 수·적용한 업무 수 콜아웃) + 팀원/Opportunity Map/Roadmap 인라인 데이터베이스 + 차트 뷰(적합성 분포, Task별 진행률, AX 적용 현황)
-- 별도 프론트엔드(Figma/Next.js 등)가 추가되면 `frontend/`로 분리 예정 — 이 저장소에는 아직 없음
 
 ### 데이터 구조
 
@@ -185,10 +174,8 @@ NotionTaskPage         # Roadmap DB 행 (account_id, goal_id, task_id) -> page_i
 
 - **산출물 설명:** 온보딩 인터뷰 → AX 성숙도 진단·목표 설정 → BP 리서치(다중 소스 실시간 조회) → 적합성 판정 포함 맞춤 로드맵 생성 → Notion 워크스페이스 자동 발행까지 이어지는 FastAPI 백엔드. 브라우저 데모 페이지(`/`)에서 온보딩부터 Notion 발행까지 전 과정을 바로 체험 가능.
 - **실행 환경:** Python 3.11, Docker / docker-compose (PostgreSQL 16 + Redis 포함), Gemini API 키·Notion OAuth 앱 필요
-- **실행 방법:** 아래 "방법 A/B" 참고. 운영 배포본은 https://ai-champion.madcamp-kaist.org (배포 섹션 참고)
+- **실행 방법:** 아래 '방법 A/B' 참고. 운영 배포본은 https://ai-champion.madcamp-kaist.org (배포 섹션 참고)
 - **시연 영상 / 이미지:** (선택)
-
-백엔드 관련 파일은 전부 `backend/` 아래에 있습니다 (프론트엔드가 추가되면 `frontend/`가 별도로 생길 예정).
 
 **방법 A. docker-compose로 전체 스택 실행 (권장 — 팀원 간 동일 환경 보장)**
 
