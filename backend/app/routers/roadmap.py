@@ -1,4 +1,4 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from app.contracts.goal import GoalDefinition
@@ -53,14 +53,18 @@ def publish(payload: PublishRoadmapRequest) -> PublishRoadmapResponse:
     # 리서치 레이어는 API에 비노출(계약 §2.4) — 인용 링크 렌더링을 위해 서버 내부에서만 재조회한다.
     # goal_id 캐싱(research/cache.py) 덕분에 이미 생성된 로드맵이면 재검색 비용이 거의 없다.
     research = run_research(payload.goal)
-    result = publish_roadmap(
-        payload.goal,
-        payload.roadmap,
-        payload.onboarding,
-        payload.account_id,
-        payload.parent_page_id,
-        research,
-    )
+    try:
+        result = publish_roadmap(
+            payload.goal,
+            payload.roadmap,
+            payload.onboarding,
+            payload.account_id,
+            payload.parent_page_id,
+            research,
+        )
+    except ValueError as e:
+        # 계정 미연결·공유 페이지 없음 등 사용자가 고칠 수 있는 상태 — 500 대신 이유를 그대로 보여준다.
+        raise HTTPException(status_code=400, detail=str(e)) from e
     return PublishRoadmapResponse(notion_url=result["url"], page_id=result["page_id"])
 
 
@@ -68,9 +72,12 @@ def publish(payload: PublishRoadmapRequest) -> PublishRoadmapResponse:
 def generate_and_publish(payload: GenerateAndPublishRequest) -> PublishRoadmapResponse:
     research = run_research(payload.goal)
     roadmap = generate_roadmap(payload.goal, research, payload.onboarding)
-    result = publish_roadmap(
-        payload.goal, roadmap, payload.onboarding, payload.account_id, payload.parent_page_id, research
-    )
+    try:
+        result = publish_roadmap(
+            payload.goal, roadmap, payload.onboarding, payload.account_id, payload.parent_page_id, research
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
     return PublishRoadmapResponse(notion_url=result["url"], page_id=result["page_id"])
 
 

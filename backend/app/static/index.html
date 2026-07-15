@@ -121,6 +121,7 @@
     <div class="toolbar">
       <button class="primary" id="btnGenerate">📋 리포트 생성</button>
       <button class="link" id="btnSample">예시로 채우기</button>
+      <button class="link" id="btnClear" style="color:var(--l3)">전체 지우기</button>
       <span class="hint">진단 · 리서치 · 로드맵 생성까지 30~60초 걸릴 수 있어요.</span>
     </div>
     <div id="formErr"></div>
@@ -136,6 +137,21 @@ const TOOLS = ["Copilot","ChatGPT Enterprise","Gemini","사내 자체 도구"];
 const FREQS = ["매일","주 1회 이상","월 1~3회","월 1회 이하"];
 const DURATIONS = [["10분 안쪽",10],["30분쯤",30],["1시간쯤",60],["반나절 이상",240]];
 const LAYER = {1:["Layer 1 · 반복정형","var(--l1)"],2:["Layer 2 · 판단보조","var(--l2)"],3:["Layer 3 · 전략","var(--l3)"]};
+
+// Notion 발행 대상은 이 데모에서 항상 이 팀 하나뿐이라 워크스페이스 식별자를 입력받지 않는다 —
+// 다른 워크스페이스로 바꾸고 싶으면 결과 카드의 "다른 워크스페이스로 전환"/"연결 해제"를 쓴다.
+const ACCOUNT_ID = "default";
+
+// ---- 새로고침해도 입력·리포트 유지 ----
+const STORAGE_KEY = "aichampion_demo_state_v1";
+function loadState() {
+  try { const raw = localStorage.getItem(STORAGE_KEY); return raw ? JSON.parse(raw) : null; }
+  catch (_) { return null; }
+}
+function saveState(extra = {}) {
+  const prev = loadState() || {};
+  localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...prev, form: snapshotForm(), ...extra }));
+}
 
 // ---- chip groups ----
 function chips(id, values, single) {
@@ -190,10 +206,53 @@ function collectTasks() {
   })).filter(t => t.title);
 }
 
+// ---- 폼 상태 저장/복원 (새로고침 유지) ----
+function snapshotForm() {
+  return {
+    industry: document.getElementById("industry").value,
+    team_size: document.getElementById("team_size").value,
+    work_categories: chipVals("work_categories"),
+    ai_level: chipVals("ai_level"),
+    has_guideline: chipVals("has_guideline"),
+    external_ai: chipVals("external_ai"),
+    designated_tools: chipVals("designated_tools"),
+    variance: document.getElementById("variance").value,
+    narrative: document.getElementById("narrative").value,
+    tasks: collectTasks(),
+  };
+}
+function restoreForm(snap) {
+  if (!snap) return;
+  document.getElementById("industry").value = snap.industry || "";
+  document.getElementById("team_size").value = snap.team_size || 8;
+  setChips("work_categories", snap.work_categories || []);
+  setChips("ai_level", snap.ai_level || []);
+  setChips("has_guideline", snap.has_guideline || []);
+  setChips("external_ai", snap.external_ai || []);
+  setChips("designated_tools", snap.designated_tools || []);
+  document.getElementById("variance").value = snap.variance || "";
+  document.getElementById("narrative").value = snap.narrative || "";
+  document.getElementById("taskRows").innerHTML = "";
+  (snap.tasks || []).forEach(addRow);
+}
+
 // ---- API ----
+async function _errorMessage(r) {
+  const txt = await r.text();
+  try {
+    const parsed = JSON.parse(txt);
+    if (parsed && typeof parsed.detail === "string") return parsed.detail;
+  } catch (_) { /* JSON이 아니면 원문 그대로 */ }
+  return `${r.status} ${r.statusText}\n${txt}`;
+}
 async function api(path, body) {
   const r = await fetch(path, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body)});
-  if (!r.ok) { const txt = await r.text(); throw new Error(`${r.status} ${r.statusText}\n${txt}`); }
+  if (!r.ok) throw new Error(await _errorMessage(r));
+  return r.json();
+}
+async function apiGet(path) {
+  const r = await fetch(path);
+  if (!r.ok) throw new Error(await _errorMessage(r));
   return r.json();
 }
 function showErr(where, e) {
@@ -213,6 +272,7 @@ document.getElementById("btnExtract").onclick = async () => {
     document.getElementById("taskRows").innerHTML = "";
     out.tasks.forEach(addRow);
     document.getElementById("extractHint").textContent = `${out.tasks.length}건 뽑았어요. 값을 확인·수정해주세요.`;
+    saveState();
   } catch(e) { showErr("formErr", e); }
   btn.disabled = false; btn.textContent = "🪄 AI로 업무 뽑기";
 };
@@ -239,6 +299,13 @@ document.getElementById("btnSample").onclick = () => {
    .forEach(([title,frequency,is_standardized,avg_time_minutes,contains_sensitive_info,current_method]) =>
      addRow({title,frequency,is_standardized,avg_time_minutes,contains_sensitive_info,current_method}));
   document.getElementById("extractHint").textContent = "예시 팀으로 채웠어요. 바로 ‘리포트 생성’을 눌러보세요.";
+  saveState();
+};
+
+document.getElementById("btnClear").onclick = () => {
+  if (!confirm("입력한 내용과 생성된 리포트를 모두 지울까요?")) return;
+  localStorage.removeItem(STORAGE_KEY);
+  location.reload();
 };
 
 document.getElementById("btnGenerate").onclick = async () => {
@@ -263,13 +330,23 @@ document.getElementById("btnGenerate").onclick = async () => {
   try {
     const rep = await api("/report/generate", answers);
     renderReport(rep);
+    saveState({report: rep});
   } catch(e) { showErr("formErr", e); }
   btn.disabled = false; btn.textContent = "📋 리포트 생성";
 };
 
+// 어떤 입력이든(칩 클릭·텍스트·표 편집) 잠시 후 자동 저장
+let _saveDebounce;
+function scheduleSave() {
+  clearTimeout(_saveDebounce);
+  _saveDebounce = setTimeout(() => saveState(), 300);
+}
+document.getElementById("form").addEventListener("input", scheduleSave);
+document.getElementById("form").addEventListener("click", scheduleSave);
+
 // ---- render ----
 function esc(s){ return (s??"").toString().replace(/[&<>]/g, m=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[m])); }
-function renderReport(rep) {
+function renderReport(rep, opts = {}) {
   const m = rep.maturity, g = rep.goal, r = rep.roadmap;
   const gauges = m.axis_scores.map(s => `
     <div class="gauge"><span class="name">${esc(s.axis)}</span>
@@ -325,9 +402,76 @@ function renderReport(rep) {
     <div class="card">
       <h2>🗺️ 이번 로드맵 ${r.research_status!=="ok"?"<span class='badge'>외부 근거 일부만 확보</span>":""}</h2>
       ${roadmap||"<span class='hint'>생성된 task 없음</span>"}
+    </div>
+    <div class="card">
+      <h2>📤 Notion에 발행</h2>
+      <p class="hint" style="margin-top:-6px">이 로드맵을 실제 Notion 워크스페이스(팀원·Opportunity Map·Roadmap 데이터베이스)로 보냅니다.</p>
+      <div id="connectStatus" class="hint" style="margin:10px 0"></div>
+      <div class="toolbar">
+        <button class="primary" id="btnPublish">📤 발행하기</button>
+      </div>
+      <div id="publishResult"></div>
     </div>`;
-  res.scrollIntoView({behavior:"smooth"});
+
+  const connectUrl = `/notion/connect?account_id=${encodeURIComponent(ACCOUNT_ID)}`;
+
+  async function refreshConnectStatus() {
+    const box = document.getElementById("connectStatus");
+    box.textContent = "연결 상태 확인 중…";
+    try {
+      const s = await apiGet(`/notion/status?account_id=${encodeURIComponent(ACCOUNT_ID)}`);
+      box.innerHTML = s.connected
+        ? `✅ '${esc(s.workspace_name || ACCOUNT_ID)}' 워크스페이스에 연결되어 있어요. ` +
+          `<a href="${connectUrl}" target="_blank">다른 워크스페이스로 전환</a> · ` +
+          `<a href="#" id="btnDisconnect">연결 해제</a>`
+        : `⚠️ 아직 Notion 계정이 연결되지 않았어요. ` +
+          `<a href="${connectUrl}" target="_blank">지금 연결하기</a> ` +
+          `(연결 화면에서 페이지 공유까지 마친 뒤, 이 탭으로 돌아와 <a href="#" id="btnRecheck">연결 확인</a>을 눌러주세요)`;
+      if (s.connected) {
+        document.getElementById("btnDisconnect").onclick = async (ev) => {
+          ev.preventDefault();
+          await fetch(`/notion/connection?account_id=${encodeURIComponent(ACCOUNT_ID)}`, {method:"DELETE"});
+          refreshConnectStatus();
+        };
+      } else {
+        document.getElementById("btnRecheck").onclick = (ev) => { ev.preventDefault(); refreshConnectStatus(); };
+      }
+    } catch (e) {
+      box.textContent = "연결 상태를 확인하지 못했어요.";
+    }
+  }
+  refreshConnectStatus();
+
+  document.getElementById("btnPublish").onclick = async () => {
+    const btn = document.getElementById("btnPublish");
+    const box = document.getElementById("publishResult");
+    box.innerHTML = "";
+    btn.disabled = true; btn.innerHTML = '<span class="spin"></span>발행 중…';
+    try {
+      const out = await api("/roadmap/publish", {
+        goal: g, roadmap: r, onboarding: rep.onboarding, account_id: ACCOUNT_ID,
+      });
+      box.innerHTML = `<div class="goalbox">✅ 발행 완료! <a href="${esc(out.notion_url)}" target="_blank">${esc(out.notion_url)}</a></div>`;
+    } catch (e) {
+      const needsConnect = e.message.includes("연결되어 있지 않습니다") || e.message.includes("공유한 페이지가 없습니다");
+      box.innerHTML = needsConnect
+        ? `<div class="err">⚠️ Notion과 연결되어 있지 않습니다.<br>먼저 <a href="${connectUrl}" target="_blank">Notion 계정을 연결</a>한 뒤 다시 시도해주세요.</div>`
+        : `<div class="err">⚠️ ${esc(e.message)}</div>`;
+      if (needsConnect) refreshConnectStatus();
+    }
+    btn.disabled = false; btn.textContent = "📤 발행하기";
+  };
+
+  if (opts.scroll !== false) res.scrollIntoView({behavior:"smooth"});
 }
+
+// ---- 페이지 로드 시 저장된 입력·리포트 복원 ----
+(function restoreOnLoad() {
+  const saved = loadState();
+  if (!saved) return;
+  if (saved.form) restoreForm(saved.form);
+  if (saved.report) renderReport(saved.report, {scroll:false});
+})();
 </script>
 </body>
 </html>

@@ -6,6 +6,71 @@ from app.main import app
 client = TestClient(app, follow_redirects=False)
 
 
+def test_status_reports_not_connected_when_no_connection(monkeypatch):
+    class _FakeSession:
+        def close(self) -> None:
+            return None
+
+    monkeypatch.setattr(notion_auth_router_module, "get_session", lambda: _FakeSession())
+    monkeypatch.setattr(notion_auth_router_module, "get_connection", lambda session, account_id: None)
+
+    response = client.get("/notion/status", params={"account_id": "acc-1"})
+
+    assert response.status_code == 200
+    assert response.json() == {"connected": False, "workspace_name": None}
+
+
+def test_status_reports_connected_with_workspace_name(monkeypatch):
+    class _FakeConnection:
+        workspace_name = "테스트 워크스페이스"
+
+    class _FakeSession:
+        def close(self) -> None:
+            return None
+
+    monkeypatch.setattr(notion_auth_router_module, "get_session", lambda: _FakeSession())
+    monkeypatch.setattr(
+        notion_auth_router_module, "get_connection", lambda session, account_id: _FakeConnection()
+    )
+
+    response = client.get("/notion/status", params={"account_id": "acc-1"})
+
+    assert response.status_code == 200
+    assert response.json() == {"connected": True, "workspace_name": "테스트 워크스페이스"}
+
+
+def test_disconnect_removes_connection_and_reports_true(monkeypatch):
+    class _FakeSession:
+        def close(self) -> None:
+            return None
+
+    monkeypatch.setattr(notion_auth_router_module, "get_session", lambda: _FakeSession())
+    monkeypatch.setattr(
+        notion_auth_router_module, "delete_connection", lambda session, account_id: True
+    )
+
+    response = client.delete("/notion/connection", params={"account_id": "acc-1"})
+
+    assert response.status_code == 200
+    assert response.json() == {"disconnected": True}
+
+
+def test_disconnect_reports_false_when_nothing_to_delete(monkeypatch):
+    class _FakeSession:
+        def close(self) -> None:
+            return None
+
+    monkeypatch.setattr(notion_auth_router_module, "get_session", lambda: _FakeSession())
+    monkeypatch.setattr(
+        notion_auth_router_module, "delete_connection", lambda session, account_id: False
+    )
+
+    response = client.delete("/notion/connection", params={"account_id": "acc-1"})
+
+    assert response.status_code == 200
+    assert response.json() == {"disconnected": False}
+
+
 def test_connect_redirects_to_notion_authorize_url(monkeypatch):
     monkeypatch.setattr(
         notion_auth_router_module,

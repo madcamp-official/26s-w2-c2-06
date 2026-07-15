@@ -1,11 +1,21 @@
 from fastapi import APIRouter
 from fastapi.responses import HTMLResponse, RedirectResponse
+from pydantic import BaseModel
 
 from app.core.db import get_session
 from app.notion.oauth import build_authorize_url, exchange_code_for_token, find_default_page_id
-from app.notion.repository import save_connection
+from app.notion.repository import delete_connection, get_connection, save_connection
 
 router = APIRouter(prefix="/notion", tags=["notion-auth"])
+
+
+class ConnectionStatusResponse(BaseModel):
+    connected: bool
+    workspace_name: str | None = None
+
+
+class DisconnectResponse(BaseModel):
+    disconnected: bool
 
 
 def _page(heading: str, message: str) -> HTMLResponse:
@@ -34,9 +44,37 @@ def _page(heading: str, message: str) -> HTMLResponse:
     """)
 
 
+@router.get("/status", response_model=ConnectionStatusResponse)
+def status(account_id: str = "default") -> ConnectionStatusResponse:
+    """프론트가 발행 버튼을 누르기 전에 미리 연결 여부를 보여줄 때 쓴다(계정당 1개 연결 가정)."""
+    session = get_session()
+    try:
+        connection = get_connection(session, account_id)
+    finally:
+        session.close()
+    if connection is None:
+        return ConnectionStatusResponse(connected=False)
+    return ConnectionStatusResponse(connected=True, workspace_name=connection.workspace_name)
+
+
+@router.delete("/connection", response_model=DisconnectResponse)
+def disconnect(account_id: str = "default") -> DisconnectResponse:
+    """연결을 끊는다 — 다른 워크스페이스로 바꾸고 싶을 때는 이걸로 초기화한 뒤 /notion/connect를
+    다시 밟거나(Notion 인증 화면에서 다른 워크스페이스를 고르면 됨), 그냥 /notion/connect를
+    한 번 더 밟아도 같은 account_id의 연결 정보는 덮어써진다(재인증 시 save_connection이 upsert)."""
+    session = get_session()
+    try:
+        disconnected = delete_connection(session, account_id)
+    finally:
+        session.close()
+    return DisconnectResponse(disconnected=disconnected)
+
+
 @router.get("/connect")
 def connect(account_id: str = "default") -> RedirectResponse:
-    """account_id를 state로 실어 Notion 인증 화면으로 보낸다. 데모용 기본값은 'default' 계정 하나."""
+    """account_id를 state로 실어 Notion 인증 화면으로 보낸다. 데모용 기본값은 'default' 계정 하나.
+    이미 연결된 account_id로 다시 밟아도(워크스페이스 전환 목적) 문제없다 — 콜백의 save_connection이
+    upsert라 새로 인증한 워크스페이스 정보로 덮어쓴다."""
     return RedirectResponse(build_authorize_url(state=account_id))
 
 

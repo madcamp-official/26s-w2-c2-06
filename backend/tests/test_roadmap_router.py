@@ -82,6 +82,28 @@ def test_publish_endpoint_calls_publish_roadmap_and_returns_notion_url_and_page_
     assert captured["research"] is fake_research
 
 
+def test_publish_endpoint_returns_400_with_message_when_account_not_connected(monkeypatch):
+    def fake_publish_roadmap(goal, roadmap, onboarding, account_id, parent_page_id=None, research=None):
+        raise ValueError(f"계정 '{account_id}'이 Notion과 연결되어 있지 않습니다.")
+
+    monkeypatch.setattr(roadmap_router_module, "run_research", lambda goal: None)
+    monkeypatch.setattr(roadmap_router_module, "publish_roadmap", fake_publish_roadmap)
+
+    client = TestClient(app)
+    payload = {
+        "goal": _load("goal_001.json"),
+        "roadmap": RoadmapResult(goal_id="goal_001", research_status=ResearchStatus.OK).model_dump(
+            mode="json"
+        ),
+        "onboarding": _load("onboarding_001.json"),
+    }
+
+    response = client.post("/roadmap/publish", json=payload)
+
+    assert response.status_code == 400
+    assert "연결되어 있지 않습니다" in response.json()["detail"]
+
+
 def test_generate_and_publish_endpoint_calls_run_research_once_and_returns_notion_url(monkeypatch):
     captured = {"run_research_calls": 0}
     fake_research = ResearchContext(
