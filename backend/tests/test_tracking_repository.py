@@ -5,6 +5,7 @@ from sqlalchemy.orm import sessionmaker
 from app.core.db import Base
 from app.notion.tracking_repository import (
     WorkspaceRecord,
+    forget_workspace,
     get_member_page_id,
     get_task_page_id,
     get_work_item_page_id,
@@ -102,3 +103,29 @@ def test_save_maturity_database_noop_when_workspace_missing(session):
     # 워크스페이스가 아예 없으면 조용히 무시한다(있을 수 없는 상태를 방어)
     save_maturity_database(session, "no-such-account", "maturity-db", "maturity-ds")
     assert get_workspace(session, "no-such-account") is None
+
+
+def test_forget_workspace_removes_workspace_and_all_row_mappings(session):
+    save_workspace(session, _workspace_record())
+    save_member_page(session, "acc-1", "M1", "member-page-1")
+    save_work_item_page(session, "acc-1", "goal_001", "wi_001", "wi-page-1")
+    save_task_page(session, "acc-1", "goal_001", "task_001", "task-page-1")
+
+    forget_workspace(session, "acc-1")
+
+    assert get_workspace(session, "acc-1") is None
+    assert get_member_page_id(session, "acc-1", "M1") is None
+    assert get_work_item_page_id(session, "acc-1", "goal_001", "wi_001") is None
+    assert get_task_page_id(session, "acc-1", "goal_001", "task_001") is None
+
+
+def test_forget_workspace_does_not_affect_other_accounts(session):
+    save_workspace(session, _workspace_record("acc-1"))
+    save_workspace(session, _workspace_record("acc-2"))
+    save_member_page(session, "acc-2", "M1", "acc2-member-page")
+
+    forget_workspace(session, "acc-1")
+
+    assert get_workspace(session, "acc-1") is None
+    assert get_workspace(session, "acc-2") is not None
+    assert get_member_page_id(session, "acc-2", "M1") == "acc2-member-page"

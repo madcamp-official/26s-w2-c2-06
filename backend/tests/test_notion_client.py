@@ -4,6 +4,7 @@ from app.notion.client import (
     create_database_row,
     create_page,
     get_data_source,
+    get_page,
     query_data_source,
     update_data_source_properties,
     update_page_properties,
@@ -187,6 +188,21 @@ def test_get_data_source_fetches_schema(monkeypatch):
 
     assert schema == {"properties": {"Name": {"type": "title"}}}
     assert captured["url"].endswith("/data_sources/ds-1")
+
+
+def test_get_page_fetches_page(monkeypatch):
+    captured = {}
+
+    def fake_get(url, headers, timeout):
+        captured["url"] = url
+        return _FakeHttpResponse({"id": "page-1", "in_trash": False})
+
+    monkeypatch.setattr(notion_client_module.httpx, "get", fake_get)
+
+    page = get_page("page-1", _HEADERS)
+
+    assert page == {"id": "page-1", "in_trash": False}
+    assert captured["url"].endswith("/pages/page-1")
 
 
 def test_update_data_source_properties_patches_data_source(monkeypatch):

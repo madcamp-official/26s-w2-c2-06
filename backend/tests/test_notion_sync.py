@@ -205,6 +205,11 @@ def _patch_notion_api(monkeypatch):
     def fake_update_callout_text(block_id, content, headers):
         calls["update_callout_text"].append((block_id, content))
 
+    def fake_get_page(page_id, headers):
+        calls.setdefault("get_page", []).append(page_id)
+        return {"in_trash": False}
+
+    monkeypatch.setattr(sync_module, "get_page", fake_get_page)
     monkeypatch.setattr(sync_module, "create_page", fake_create_page)
     monkeypatch.setattr(sync_module, "create_database", fake_create_database)
     monkeypatch.setattr(sync_module, "get_block_children", fake_get_block_children)
@@ -427,6 +432,43 @@ def test_sync_roadmap_reuses_workspace_and_upserts_rows_on_second_call(session, 
     # 두 번째 호출은 같은 work_item_id/task_id/member_id라 새로 만들지 않고 갱신한다
     assert len(calls["create_database_row"]) == 3
     assert len(calls["update_page_properties"]) == 3
+
+
+def test_sync_roadmap_recreates_workspace_when_dashboard_page_was_trashed(session, monkeypatch):
+    """대시보드 페이지가 Notion에서 지워지거나 휴지통에 들어가면(테스트/정리 중 실제로 반복됐던
+    사고, 2026-07-15) 저장된 워크스페이스를 그대로 재사용하지 않고 새로 만들어야 한다."""
+    calls = _patch_notion_api(monkeypatch)
+
+    sync_module.sync_roadmap(_goal(), _roadmap(), _onboarding(), "acc-1", "parent-page", session, {})
+    assert len(calls["create_database"]) == 3
+
+    # 두 번째 발행 시점엔 저장해 둔 대시보드 페이지가 휴지통에 들어간 상태라고 시뮬레이션.
+    monkeypatch.setattr(sync_module, "get_page", lambda page_id, headers: {"in_trash": True})
+
+    sync_module.sync_roadmap(_goal(), _roadmap(), _onboarding(), "acc-1", "parent-page", session, {})
+
+    # 재사용하지 않고 데이터베이스 3개를 또 만들어야 한다(총 6개).
+    assert len(calls["create_database"]) == 6
+    # 옛 work_item_id/task_id 매핑도 새 워크스페이스 기준으로 다시 만들어졌어야 한다.
+    assert get_work_item_page_id(session, "acc-1", "goal_001", "wi_001") is not None
+    assert get_task_page_id(session, "acc-1", "goal_001", "task_001") is not None
+
+
+def test_sync_roadmap_recreates_workspace_when_dashboard_page_check_errors(session, monkeypatch):
+    """대시보드 페이지 조회 자체가 실패해도(삭제로 인한 404 등) 안전하게 새로 만든다."""
+    calls = _patch_notion_api(monkeypatch)
+
+    sync_module.sync_roadmap(_goal(), _roadmap(), _onboarding(), "acc-1", "parent-page", session, {})
+    assert len(calls["create_database"]) == 3
+
+    def fake_get_page_raises(page_id, headers):
+        raise RuntimeError("404 Not Found")
+
+    monkeypatch.setattr(sync_module, "get_page", fake_get_page_raises)
+
+    sync_module.sync_roadmap(_goal(), _roadmap(), _onboarding(), "acc-1", "parent-page", session, {})
+
+    assert len(calls["create_database"]) == 6
 
 
 def test_sync_roadmap_writes_task_week_number(session, monkeypatch):
