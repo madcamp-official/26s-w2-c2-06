@@ -1,39 +1,30 @@
 """
 notion/dashboard_blocks.py
 
-"AX 대시보드" 페이지의 초기 블록. 콜아웃 2개(발견한 AI Opportunity 수 / AX 적용한 업무 수)만
-먼저 만들어 페이지에 넣고, 그 뒤 팀원/Opportunity Map/Roadmap 데이터베이스를 이 페이지를
-parent로 생성하면 Notion이 각 데이터베이스의 child_database 블록을 페이지 끝에 자동으로 붙여준다
-(공개 API가 뷰를 직접 못 만드니 이 자동 부착 동작에 기댄다 — 9절 참고). 데이터베이스는
-`create_database`가 `is_inline: true`로 만들어서 이 블록이 링크 카드가 아니라 행이 바로 보이는
-표로 붙는다.
+"AX 대시보드" 페이지의 최상단 블록. QA_amendments 2절에 따라 예전엔 여기 있던 콜아웃 2개
+(발견한 AI Opportunity 수 / AX 적용한 업무 수, 수동 새로고침 필요)를 없애고, 대신 이번 목표
+문장 하나만 보라색(purple_background) 콜아웃으로 보여준다. 집계 차트는 자동 발행 대상에서
+아예 뺐다 — 이유는 sync.py 모듈 독스트링 참고(Notion "Dashboard" 뷰는 유료 플랜 전용, 대안인
+평범한 chart 뷰는 원하는 위치에 놓을 수 없어 자동화를 포기하고 사용자가 `/linked`로 직접
+만들도록 안내한다).
 
-콜아웃은 항상 맨 앞 두 블록(인덱스 0, 1)이라 위치를 계산할 필요가 없다 — `sync.py`가 이 값을
-그대로 가정하고 `get_block_children`으로 다시 조회해 블록 ID를 알아낸다. goal_text는 그 뒤에
-붙는 소개 문단이라 인덱스 계산에 영향 없음.
+콜아웃은 항상 맨 앞 블록(인덱스 0)이라 위치를 계산할 필요가 없다 — sync.py가 이 값을 그대로
+가정하고 `get_block_children`으로 다시 조회해 블록 ID를 알아내(goal_callout_block_id로 저장)
+재발행마다 목표 문구를 최신으로 갱신한다.
 """
 
-from app.notion.rich_text import callout, divider, paragraph
+from app.notion.rich_text import callout, divider
 
-DISCOVERED_COUNT_BLOCK_INDEX = 0
-APPLIED_COUNT_BLOCK_INDEX = 1
-
-
-def _stat_text(label: str, count: int) -> str:
-    return f"{label}: {count}건 (새로고침 기준)"
+GOAL_CALLOUT_BLOCK_INDEX = 0
+GOAL_CALLOUT_COLOR = "purple_background"
 
 
-def build_dashboard_blocks(goal_text: str = "") -> list[dict]:
-    blocks = [
-        callout(_stat_text("발견한 AI Opportunity 수", 0), icon="🔍"),
-        callout(_stat_text("AX 적용한 업무 수", 0), icon="🚀"),
+def goal_callout_text(goal_text: str) -> str:
+    return goal_text or "목표가 아직 설정되지 않았어요."
+
+
+def build_dashboard_blocks(goal_text: str) -> list[dict]:
+    return [
+        callout(goal_callout_text(goal_text), icon="🎯", color=GOAL_CALLOUT_COLOR),
         divider(),
     ]
-    if goal_text:
-        blocks.append(
-            paragraph(
-                f'"{goal_text}"라는 목표로 만든 로드맵이에요. '
-                "아래 데이터베이스에서 업무 전체 지도와 실행 계획을 확인하실 수 있어요."
-            )
-        )
-    return blocks

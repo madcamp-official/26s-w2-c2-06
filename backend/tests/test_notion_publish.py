@@ -44,8 +44,7 @@ def _workspace() -> WorkspaceRecord:
         roadmap_data_source_id="roadmap-ds",
         dashboard_page_id="dash-page-id",
         dashboard_url="https://notion.so/dash-page-id",
-        discovered_count_block_id="discovered-block",
-        applied_count_block_id="applied-block",
+        goal_callout_block_id="goal-block",
     )
 
 
@@ -69,7 +68,6 @@ def test_publish_roadmap_uses_default_page_and_returns_dashboard_url(monkeypatch
         return _workspace()
 
     monkeypatch.setattr(publish_module, "sync_roadmap", fake_sync_roadmap)
-    monkeypatch.setattr(publish_module, "refresh_dashboard_stats", lambda account_id: None)
 
     result = publish_module.publish_roadmap(_goal(), _roadmap(), _onboarding(), account_id="acc-1")
 
@@ -88,7 +86,6 @@ def test_publish_roadmap_prefers_explicit_parent_page_id(monkeypatch):
         return _workspace()
 
     monkeypatch.setattr(publish_module, "sync_roadmap", fake_sync_roadmap)
-    monkeypatch.setattr(publish_module, "refresh_dashboard_stats", lambda account_id: None)
 
     publish_module.publish_roadmap(
         _goal(), _roadmap(), _onboarding(), account_id="acc-1", parent_page_id="explicit-page"
@@ -97,18 +94,41 @@ def test_publish_roadmap_prefers_explicit_parent_page_id(monkeypatch):
     assert captured["parent_page_id"] == "explicit-page"
 
 
-def test_publish_roadmap_refreshes_dashboard_stats_after_sync(monkeypatch):
+def test_publish_roadmap_syncs_diagnosis_when_given(monkeypatch):
+    from app.contracts.maturity import MaturityDiagnosis
+
     _patch_connection(monkeypatch)
     monkeypatch.setattr(publish_module, "sync_roadmap", lambda *a, **k: _workspace())
 
-    refreshed = {}
-    monkeypatch.setattr(
-        publish_module, "refresh_dashboard_stats", lambda account_id: refreshed.setdefault("account_id", account_id)
+    captured = {}
+
+    def fake_sync_diagnosis(diagnosis, workspace, session, headers):
+        captured["diagnosis"] = diagnosis
+        captured["workspace"] = workspace
+        return "maturity-page-1"
+
+    monkeypatch.setattr(publish_module, "sync_diagnosis", fake_sync_diagnosis)
+
+    diagnosis = MaturityDiagnosis(goal_id="goal_001", axis_scores=[], summary="요약")
+    publish_module.publish_roadmap(
+        _goal(), _roadmap(), _onboarding(), account_id="acc-1", diagnosis=diagnosis
     )
 
-    publish_module.publish_roadmap(_goal(), _roadmap(), _onboarding(), account_id="acc-1")
+    assert captured["diagnosis"] is diagnosis
+    assert captured["workspace"].account_id == "acc-1"
 
-    assert refreshed["account_id"] == "acc-1"
+
+def test_publish_roadmap_skips_diagnosis_sync_when_not_given(monkeypatch):
+    _patch_connection(monkeypatch)
+    monkeypatch.setattr(publish_module, "sync_roadmap", lambda *a, **k: _workspace())
+
+    def fail_sync_diagnosis(*a, **k):
+        raise AssertionError("diagnosis가 없으면 sync_diagnosis를 부르면 안 된다")
+
+    monkeypatch.setattr(publish_module, "sync_diagnosis", fail_sync_diagnosis)
+
+    # AssertionError를 던지지 않고 조용히 끝나야 한다(= sync_diagnosis가 호출되지 않았다).
+    publish_module.publish_roadmap(_goal(), _roadmap(), _onboarding(), account_id="acc-1")
 
 
 def test_publish_roadmap_raises_when_account_not_connected(monkeypatch):
@@ -134,8 +154,11 @@ def test_publish_report_raises_when_roadmap_missing():
 def test_publish_report_delegates_to_publish_roadmap(monkeypatch):
     captured = {}
 
-    def fake_publish_roadmap(goal, roadmap, onboarding, account_id, parent_page_id=None, research=None):
+    def fake_publish_roadmap(
+        goal, roadmap, onboarding, account_id, parent_page_id=None, research=None, diagnosis=None
+    ):
         captured["args"] = (goal, roadmap, onboarding, account_id, parent_page_id)
+        captured["diagnosis"] = diagnosis
         return {"url": "https://notion.so/dash-page-id", "page_id": "dash-page-id"}
 
     monkeypatch.setattr(publish_module, "publish_roadmap", fake_publish_roadmap)
@@ -146,3 +169,4 @@ def test_publish_report_delegates_to_publish_roadmap(monkeypatch):
 
     assert result == {"url": "https://notion.so/dash-page-id", "page_id": "dash-page-id"}
     assert captured["args"][3] == "acc-1"
+    assert captured["diagnosis"] is None

@@ -53,6 +53,7 @@ def build_onboarding(
         org_environment=OrgEnvironment(
             has_ai_guideline=answers.has_ai_guideline,
             designated_ai_tools=[t for t in answers.designated_ai_tools if t and t != "없음"],
+            erp_data_integrated=answers.erp_data_integrated,
             external_ai_allowed=answers.external_ai_allowed,
             ai_usage_variance=answers.ai_usage_variance,
         ),

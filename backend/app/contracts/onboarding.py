@@ -29,13 +29,21 @@ class AiAdoptionLevel(str, Enum):
 
 class OrgEnvironment(BaseModel):
     """SPEC 4.1 '조직 환경'. 기능 2가 목표 정의서의 조직 제약(OrgConstraints)으로 매핑하고,
-    기능 4의 게이트 판정('회사 AI 가이드라인 없음 + 민감정보')에도 근거가 된다."""
+    기능 4의 게이트 판정('회사 AI 가이드라인 없음 + 민감정보')에도 근거가 된다.
+
+    QA_amendments 1절 — "회사가 지원하는 AI가 있는지, ERP나 데이터가 연결되어 있는지"를 온보딩에서
+    명시적 사실값으로 받아, 목표 정의서의 조직 제약(연동 시스템)에 LLM 추정이 아니라 이 값이
+    결정론적으로 반영되게 한다(diagnosis/service.py `_integrated_systems` 참고).
+    """
 
     has_ai_guideline: bool = Field(
         default=False, description="회사 차원의 AI 사용 가이드라인이 있는지"
     )
     designated_ai_tools: list[str] = Field(
         default_factory=list, description="사내에서 공식 지정한 AI 도구 (없으면 빈 배열)"
+    )
+    erp_data_integrated: bool = Field(
+        default=False, description="회사가 지원하는 AI가 ERP·사내 데이터와 연동되어 있는지"
     )
     external_ai_allowed: bool = Field(
         default=False, description="외부 AI 도구(예: 개인 ChatGPT) 사용이 허용되는지"
@@ -56,10 +64,15 @@ class RepetitiveTask(BaseModel):
 
 
 class TeamMemberTag(BaseModel):
+    """QA_amendments 1절 — 온보딩 1번(기본 정보)의 팀원 표 한 행. 팀장(작성자 본인)도 기본
+    행으로 포함되며, member_id는 닉네임 등 익명 식별자다."""
+
     member_id: str = Field(description="익명 식별자 — 실명 사용 금지 (SPEC.md 4.1·2.6 정책)")
+    assigned_work: str = Field(default="", description="담당 업무 (예: '콘텐츠 기획', '고객 응대')")
     strengths: list[str] = Field(default_factory=list)
-    ai_comfort_level: str = Field(description="예: 낮음/중간/높음")
-    workload_level: str = Field(description="예: 낮음/중간/높음")
+    ai_comfort_level: str = Field(description="AI 수준. 예: 낮음/중간/높음")
+    workload_level: str = Field(description="현재 업무과중 정도. 예: 낮음/중간/높음")
+    notes: str = Field(default="", description="비고")
 
 
 class OnboardingData(BaseModel):

@@ -1,0 +1,32 @@
+# 1.온보딩 서베이
+## 설문 파트
+- 1번 기본 정보: 팀원 표 추가: 닉네임 등 식별자, 담당 업무, AI 수준, 현재 업무과중 정도, 비고 등. 팀장(본인)을 기본 행으로 넣어 두고 행 추가 가능. 팀원 DB에 들어감. 기존에 2번 섹션에 있던 팀원 간 AI 활용 편차(선택 작성)항목을 여기로 이동.
+- 2번 섹션에서 이 팀이 AI를 어떻게 쓰고 있는지 종합적으로 알 수 있어야 함. 
+    1. 팀장님이 아닌 팀이 어느 정도 쓰는지로 수정, 
+    2. 회사가 지원하는 AI가 있는지 -(있다면) 어떤 제품인지, ERP나 데이터가 연결되어 있는지
+    3. 외부 AI(개인 ChatGPT 등) 사용이 가능한지, 회사 AI 가이드라인이 있는지.
+    1~3의 내용을 종합적으로 판단하여 팀의 AI 환경 파악. **중요** 조사된 환경이 Task 및 가이드라인 생성에 반영되는지 확인.
+
+- 리포트 생성과 "우리 팀 AX 성숙도 진단" 사이에 공백 추가. input - output 두 섹션이 시각적으로 구분되도록.
+- 🧭 우리 팀 AX 성숙도 진단, 🚩 이번 목표 유지
+- "🔍 이 업무들, AI로 풀어도 될까요? + 🗺️ 이번 로드맵" 섹션을 노션과 직관적으로 연결되도록 수정. ex: "우리 부서의 n개 업무 중 m개의 AI 적용 포인트를 찾았어요." 업무 Layer와 task 개요 -> Notion 발행 유도 "task 실행을 위한 단계별 가이드와 관리를 도와드릴게요. 노션 연결~~"
+
+# 2. 노션
+- 최상단 지표 콜아웃 삭제: 발견한 AI Opportunity 수, AX 적용한 업무 수
+- 최상단 목표 콜아웃 추가: "매일 발생하는 SNS 리뷰 모니터링 및 카피 초안 작성 업무에 팀 표준 도구를 도입하여 단순 반복 시간을 50% 단축하고, 팀원들이 고부가가치 콘텐츠 기획에 더 집중하게 한다."
+- callout, 대시보드 color 지정, progress bar 색깔을 보라색으로 지정해서 통일감을 줘.
+- AX가 주제랑 어울리는 tech 느낌 나는 배경이미지 센스있게 추가해줘ㅎㅎ
+- 팀원 DB의 Task별 진행률 view, Opportunity Map의 적합성 분포 view, Roadmap의 AX 적용 현황 view 삭제
+- 노션의 Dashboard 요소 활용하여 지표 대시보드 추가.
+    a. AX 기회: Opportunity Map의 업무 Layer 구분한 도넛 차트. 필터: 적합성: 적합, 부분적합.
+    b. (이번 주차) 카테고리별 Task 개수 요약: a와 2열로 나란히 표시
+    c. (이번 주차) 진행도: Layout-Chart, Chart type-가로 막대 그래프, X axis: What to show-Progress(Values), Y axis: What to show-Task, Sort by-Progress(High to low)
+- 온보딩 서베이에서 리포트 생성 시 산출물로 나온 "우리 팀 AX 성숙도 진단"을 노션에 수정 가능한 요소(적합한 것 없을 시 단순 표)로 만듦. 향후 주간 진단 추가 시 재평가 가능하도록.
+- 목표 콜아웃 - 지표 대시보드 - Roadmap - Opportunity Map - 팀원 - 우리 팀 AX 성숙도 진단 순으로 배치
+## Roadmap 
+- Progress: Show as bar, Show number 토글 off, Number format-Percent, Decimal places-0(수동 지정 시 Edit property에서 조작 가능한 항목들)
+- 열 순서 정렬: 주차(Demo에서는 생성한 모든 task를 1주차에 배정), Category, Task, 업무(기존 Objective 명칭 변경), 착수 여부, Progress, 담당자, 지표명, 단위, 기존값, 현재값, 목표값.
+## Opportunity Map
+- 행 순서 정렬: 적합성 ascending
+- 열 순서 정렬: 업무, 빈도, 적합성, Layer, Task, Total Progress, pivot 사유
+- Progress: calculate-average Show as bar, Show number 토글 on, Number format-Percent, Decimal places-0(수동 지정 시 Edit property에서 조작 가능한 항목들)
