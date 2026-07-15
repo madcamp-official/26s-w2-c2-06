@@ -49,73 +49,81 @@
 
 ## 기획안
 
-- **산출물 주제:** AI Champion - 중간관리자 대상 AX(AI 전환) 맞춤 로드맵 생성 서비스
-- **제작 목적:** 기존 AX 지원 서비스가 B2B 엔터프라이즈 중심인 것과 달리, 관리자 개인 단위에서 산업별 Best Practice를 검색해 팀 업무에 바로 적용 가능한 로드맵을 LLM으로 생성해주는 도구를 구현
-- **선택 옵션:** LLM Wrapper (Gemini API 사용 예정)
-- **핵심 구현 요소:**
-  - 온보딩 대화형 인터뷰로 산업/직무/팀 상황 수집
-  - RAG 기반 산업별 AX Best Practice 검색 및 요약
-  - 협업체계/자동화 포인트/평가지표로 구성된 맞춤형 로드맵(구조화된 JSON) 생성
-- **사용 / 시연 시나리오:** 관리자가 온보딩 질문에 답변 → RAG가 관련 리포트에서 유사 사례를 검색 → 사용자 상황에 맞춰 재구성된 로드맵을 카드 형태로 제시
-- **팀원별 역할:**
+- **산출물 주제:** AI Champion - AX(AI 전환) 도입 초기 단계의 "개인 중간관리자"를 위한 코칭 어시스턴트
+- **제작 목적:** 전사 단위 컨설팅이 아니라, 관리자 한 사람의 의지만으로 자기 팀 단위에서 AI 활용을 시작·실험·검증할 수 있도록 돕는다. AI 만능주의를 경계해 "생성형 AI로 풀 문제가 맞는지"부터 판정하고, 아니라면 대안(자동화 템플릿·현행 유지)을 제안한다.
+- **선택 옵션:** LLM Wrapper (Gemini API)
+- **핵심 구현 요소** (`docs/SPEC.md` 4장 — 6개 기능 skeleton):
+  1. 온보딩 인터뷰: 업종/팀 규모/AI 활용 수준/조직 환경 + 반복 업무를 자유서술로 받아 LLM이 구조화
+  2. AX 성숙도 진단 및 목표 설정: 5축(전략 명확성/도구 활용도/팀 수용력/데이터 접근성/평가 체계) 진단 + 목표 정의서 생성
+  3. BP 리서치 엔진: Semantic Scholar·arXiv·GitHub·Tavily 등 다중 소스 실시간 조회(사전 구축 corpus 없음) — 사용자에게 직접 노출되지 않고 4번의 근거로만 쓰임
+  4. 맞춤 로드맵 + 평가 지표 생성: AI 적합성 판정(빈도×정형성 매트릭스 + 게이트) → Layer 분류 → task 분해 → 역할 재분배 제안 → 지표 설계, 리서치 출처를 함께 노출
+  5. 로드맵 실행 트래킹 / 주간 코칭 및 평가: (설계 단계, 미구현 — SPEC 4.5)
+  6. Bottom-up 리포트 생성: (설계 단계, 미구현 — SPEC 4.6)
+  - 위 산출물을 Notion 워크스페이스(팀원 DB·Opportunity Map DB·Roadmap DB + 진행률/적합성 분포 차트)로 자동 발행
+- **사용 / 시연 시나리오:** 관리자가 온보딩 질문(또는 하루 업무 자유서술)에 답변 → LLM이 반복 업무를 구조화 → 5축 성숙도 진단과 목표 문장 생성 → 목표를 근거로 실시간 리서치 → AI 적합성 판정과 함께 이번 주 실행 가능한 로드맵 생성 → 결과를 Notion 대시보드로 발행
+- **팀원별 역할:** FE(임유빈) / BE·인프라(김경원, 아래 표 참고)
 
 ### 개발 일정
 
 | 날짜 | 목표 |
 |---|---|
 | Day 1 | 환경 세팅, Gemini API·DB 연동 테스트 |
-| Day 2 | AX 리포트 수집·청킹·임베딩 (RAG 데이터 구축) |
-| Day 3 | 온보딩 대화 플로우 + RAG 검색 API 구현 |
-| Day 4 | 로드맵 생성 프롬프트 및 구조화된 출력 설계 |
-| Day 5 | 프론트엔드 연동, 로드맵 결과 UI 구현 |
-| Day 6 | 레이트리밋·캐싱 안정화, 통합 테스트 |
-| Day 7 | 배포 및 시연 자료 준비 |
+| Day 2 | 온보딩 인터뷰 + AX 성숙도 진단·목표 설정 구현 |
+| Day 3 | BP 리서치 엔진(다중 소스 실시간 조회) 구현 |
+| Day 4 | 로드맵 생성(적합성 판정·Layer 분류·역할 재분배·지표) 프롬프트 및 구조화된 출력 설계 |
+| Day 5 | Notion 연동(OAuth) 및 결과물 발행, 데모 페이지 연동 |
+| Day 6 | 통합 테스트, 안정화(레이트리밋/캐싱/에러 처리) |
+| Day 7 | 배포(KCLOUD VM + Cloudflare Tunnel) 및 자동배포 파이프라인 구축, 시연 자료 준비 |
 
 ---
 
 ## 구현 명세서
 
-| 구현 요소 | 설명 | 우선순위 |
-|---|---|---|
-| 온보딩 대화형 인터뷰 | 산업/직무/팀 규모/AX 활용 단계 수집 | 필수 |
-| RAG 리서치 검색 | 사용자 프로필 기반 유사 BP 청크 검색·요약 | 필수 |
-| 맞춤형 로드맵 생성 | 협업체계·자동화 포인트·평가지표 JSON 생성 | 필수 |
-| 프롬프트 예시 제공 | 자동화 포인트별 바로 쓸 수 있는 프롬프트 생성 | 선택 |
-| 주간 체크인 코칭 | 로드맵 실행 여부 트래킹 및 코칭 메시지 생성 | 선택 |
+| 구현 요소 | 설명 | 우선순위 | 상태 |
+|---|---|---|---|
+| 1. 온보딩 인터뷰 | 업종/팀 규모/AI 활용 수준/조직 환경 + 반복 업무 자유서술 → LLM이 구조화 | 필수 | ✅ 구현 완료 |
+| 2. AX 성숙도 진단 및 목표 설정 | 5축 진단(레이더 차트용) + 목표 정의서 생성 | 필수 | ✅ 구현 완료 |
+| 3. BP 리서치 엔진 | Semantic Scholar·arXiv·GitHub·Tavily 다중 소스 실시간 조회, 4번에만 전달(비노출) | 필수 | ✅ 구현 완료 |
+| 4. 맞춤 로드맵 + 평가 지표 생성 | AI 적합성 판정(매트릭스+게이트) → Layer 분류 → task 분해 → 역할 재분배 제안 → 지표 설계, 리서치 출처 노출 | 필수 | ✅ 구현 완료 |
+| Notion 자동 발행 | 팀원/Opportunity Map/Roadmap DB + 적합성 분포·진행률·AX 적용 현황 차트 자동 생성 | 필수 | ✅ 구현 완료 |
+| 5. 로드맵 실행 트래킹 / 주간 코칭 | 진행률 체크, 지속적 발견 루프, 팀 자산화 저장소 | 선택 | 설계만 완료(`SPEC.md` 4.5) |
+| 6. Bottom-up 리포트 생성 | 경영진/동료 대상 설득용 성과 요약 리포트 | 선택 | 설계만 완료(`SPEC.md` 4.6) |
 
 ---
 
 ## 아키텍처
 
-<!-- 실시간 인터랙션: WebSocket/SSE/WebRTC 구조도 / LLM Wrapper: API 연동 흐름도 / Cross-Platform: 플랫폼 구성도 -->
+<!-- LLM Wrapper: API 연동 흐름도 -->
 
 ```
-사용자 요청
+사용자 (온보딩 인터뷰 답변)
    │
    ▼
-프론트엔드 (Next.js)
+백엔드 API (FastAPI) ─ backend/app/static/index.html (데모 페이지)
    │
-   ▼
-백엔드 API (FastAPI)
+   ├─▶ 1. 온보딩(app/onboarding)          — 반복 업무 자유서술 → LLM 구조화
    │
-   ├─▶ 캐시 확인 (Redis) ── hit ──▶ 응답 반환
-   │        │ miss
+   ├─▶ 2. AX 성숙도 진단·목표(app/diagnosis) — Gemini: 5축 점수 + 목표 문장
+   │        (조직 제약은 LLM이 아니라 온보딩 사실값에서 코드가 결정론적으로 채움)
+   │
+   ├─▶ 3. BP 리서치 엔진(app/research)      — goal_id 캐시 확인
+   │        │ miss                          (in-memory, Redis 아님)
    │        ▼
-   ├─▶ RAG 검색 (PostgreSQL + pgvector)
-   │        │
-   │        ▼
-   ├─▶ 레이트리밋 큐 (15 RPM / 1,500 RPD 준수)
-   │        │
-   │        ▼
-   └─▶ Gemini Flash API (구조화된 JSON 생성)
-            │
-            ▼
-   저장 (PostgreSQL) + 캐시 갱신 → 응답 반환
+   │    Semantic Scholar / arXiv / GitHub / Tavily 실시간 조회
+   │    (pillar 라운드로빈으로 practice/trend/research 다양성 보장)
+   │
+   ├─▶ 4. 로드맵 생성(app/roadmap) — 2단계 Gemini 호출
+   │        Stage A: 적합성 판정(매트릭스+게이트) + Layer 분류 + task 초안
+   │        Stage B: 역할 재분배 제안 + 지표 설계 + source_refs 부착
+   │
+   └─▶ Notion 발행(app/notion) — 팀원/Opportunity Map/Roadmap DB 생성·upsert
+            + 적합성 분포·Task별 진행률·AX 적용 현황 차트, 배너/색상 고정
 ```
- 
-- **LLM**: Gemini 3.5 Flash / 3.1 Flash-Lite (무료 티어)
-- **RAG 저장소**: PostgreSQL + pgvector (별도 벡터DB 없이 단일 DB로 처리)
-- **레이트리밋/캐시**: Redis (분당 요청 수 제한 + 응답 캐싱)
+
+- **LLM**: Gemini (`gemini-3.1-flash-lite`, `app/core/config.py`에서 모델명 교체 가능) — 리서치 레이어(3번)는 LLM을 쓰지 않고 규칙 기반으로만 동작
+- **DB(PostgreSQL)**: 도메인 데이터(온보딩/로드맵 등)를 저장하지 않는다(요청-응답 파이프라인, 상태 없음) — Notion OAuth 연결 정보·계정별 발행된 워크스페이스/행 ID 추적 용도로만 사용(`app/notion/models.py`)
+- **캐시**: 리서치·로드맵 결과 모두 `goal_id` 키의 프로세스 인메모리 캐시(`app/research/cache.py`, `app/roadmap/cache.py`) — docker-compose의 Redis는 현재 인프라만 구성돼 있고 애플리케이션 로직에서는 아직 쓰이지 않음
+- **외부 연동**: Gemini API, Notion API(Public Integration + OAuth), Semantic Scholar/arXiv/GitHub/Tavily(리서치)
 
 ---
 
@@ -126,53 +134,58 @@
 ### 화면 / 인터페이스 설계
 
 <!-- Figma 링크, 화면 이미지, CLI 사용 예시, 앱 화면 등 -->
-- 온보딩 챗봇 화면: 산업/직무/팀 상황을 대화형으로 수집
-- 로드맵 결과 화면: 협업체계 / 자동화 포인트 / 평가지표 3개 섹션 카드 UI
-- (Figma 링크 추후 추가)
+- 백엔드 내장 데모 페이지(`backend/app/static/index.html`, `/`): 온보딩 입력 폼(칩 선택 + 반복 업무 표) → "리포트 생성" → 5축 진단 게이지·목표·적합성 판정·주차별 로드맵 카드 렌더링 → "Notion에 발행" 버튼으로 실제 워크스페이스에 발행
+- Notion 발행 결과: "AX 대시보드" 페이지(발견한 Opportunity 수·적용한 업무 수 콜아웃) + 팀원/Opportunity Map/Roadmap 인라인 데이터베이스 + 차트 뷰(적합성 분포, Task별 진행률, AX 적용 현황)
+- 별도 프론트엔드(Figma/Next.js 등)가 추가되면 `frontend/`로 분리 예정 — 이 저장소에는 아직 없음
 
 ### 데이터 구조
 
 <!-- DB 스키마, JSON 구조, 파일 저장 방식 등 -->
-```sql
-CREATE TABLE users (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    industry VARCHAR(50),
-    role VARCHAR(50),
-    team_size INT,
-    ax_stage VARCHAR(20)  -- 관심/시범/확산/embed
-);
- 
-CREATE TABLE report_chunks (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    source VARCHAR(100),
-    industry VARCHAR(50),
-    content TEXT,
-    embedding VECTOR(768)
-);
- 
-CREATE TABLE roadmaps (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID REFERENCES users(id),
-    content JSONB,  -- {collaboration, automation_points, metrics}
-    created_at TIMESTAMP DEFAULT now()
-);
+도메인 데이터는 DB 테이블이 아니라 **Pydantic 계약 스키마**(`backend/app/contracts/`)로 파이프라인 단계 사이를 오간다(요청-응답형, 영속 저장 없음):
+
+- `OnboardingData`(1번 출력·2·4번 입력): 팀 규모/AI 활용 수준/조직 환경/반복 업무 리스트/팀원 태깅
+- `MaturityDiagnosis` + `GoalDefinition`(2번 출력·3·4번 입력): 5축 점수, 목표 문장, 조직 제약(허용 도구/보안 수준)
+- `ResearchContext`(3번 출력·4번 입력, 비노출): finding 리스트(출처 URL 포함)
+- `RoadmapResult`(4번 출력): `FitnessAssessment`(적합성 판정) + `Task`(Layer/카테고리/지표/출처) + `RoleReassignmentSuggestion` + `Metric`
+
+실제 PostgreSQL 테이블은 Notion 연동 상태 추적용뿐이다(`backend/app/notion/models.py`):
+
+```python
+NotionConnection      # 계정별 OAuth 토큰 (account_id PK)
+NotionWorkspace        # 계정별 발행된 팀원/Opportunity Map/Roadmap DB + 대시보드 ID
+NotionMemberPage       # 팀원 DB 행 (account_id, member_id) -> Notion page_id
+NotionWorkItemPage     # Opportunity Map DB 행 (account_id, goal_id, work_item_id) -> page_id
+NotionTaskPage         # Roadmap DB 행 (account_id, goal_id, task_id) -> page_id
 ```
 
 ### API / 외부 서비스 연동
 
-| Method / 방식 | Endpoint / 서비스 | 설명 | 요청 | 응답 | 비고 |
-|---|---|---|---|---|---|
-| POST | `/onboarding` | 사용자 프로필 수집 | 산업, 직무, 팀 규모 등 | user_id | - |
-| POST | `/roadmap/generate` | 로드맵 생성 요청 | user_id | roadmap JSON | Gemini Flash 호출 |
-| Google Generative AI SDK | Gemini API | LLM 생성 및 임베딩 | 프롬프트/텍스트 | 텍스트 또는 벡터 | 무료 티어(RPM 제한 있음) |
+| Method | Endpoint | 설명 | 비고 |
+|---|---|---|---|
+| GET | `/onboarding/interview` | 인터뷰 질문 대본 반환 | 기능 1 |
+| POST | `/onboarding/extract-tasks` | 하루 업무 자유서술 → 반복 업무 후보 | Gemini 호출 |
+| POST | `/onboarding/submit` | 인터뷰 답변 → `OnboardingData` | - |
+| POST | `/diagnosis/diagnose` | `OnboardingData` → 성숙도 진단 + 목표 정의서 | Gemini 호출, 기능 2 |
+| POST | `/diagnosis/publish-report` | 진단(+로드맵)을 Notion에 발행 | - |
+| POST | `/diagnosis/generate-and-publish` | 온보딩→진단→리서치→로드맵→Notion 발행 전체 | 1→2→3→4 통합 |
+| POST | `/roadmap/generate` | 목표+온보딩 → 로드맵 생성 | 기능 3(내부)+4 |
+| POST | `/roadmap/publish` | 로드맵 → Notion 발행 | - |
+| POST | `/roadmap/generate-and-publish` | 로드맵 생성+발행 한 번에 | - |
+| POST | `/roadmap/{account_id}/refresh-progress` | Notion 대시보드 집계 콜아웃 새로고침 | 수동 호출 |
+| POST | `/report/generate` | 온보딩 답변 → 진단+로드맵 JSON (Notion 발행 없음, 데모용) | 리서치 레이어 비노출 |
+| GET | `/notion/connect`, `/notion/callback` | Notion OAuth 연결 플로우 | Public Integration |
+| GET | `/notion/status`, `DELETE /notion/connection` | 연결 상태 확인 / 연결 해제(워크스페이스 전환용) | - |
+| Google `google-genai` SDK | Gemini API | 구조화 출력(JSON) 생성 | `response_schema`로 Pydantic 모델 직접 지정 |
+| REST (httpx) | Semantic Scholar / arXiv / GitHub / Tavily | BP 리서치 실시간 조회 | 무료 티어, 각각 독립 실패 허용 |
+| REST (httpx) | Notion API (2026-03-11) | 데이터베이스·페이지·뷰(차트) 생성/갱신 | 공식 SDK 미사용, 직접 REST 호출 |
 
 ---
 
 ## 산출물 및 실행 방법
 
-- **산출물 설명:**
-- **실행 환경:**
-- **실행 방법:**
+- **산출물 설명:** 온보딩 인터뷰 → AX 성숙도 진단·목표 설정 → BP 리서치(다중 소스 실시간 조회) → 적합성 판정 포함 맞춤 로드맵 생성 → Notion 워크스페이스 자동 발행까지 이어지는 FastAPI 백엔드. 브라우저 데모 페이지(`/`)에서 온보딩부터 Notion 발행까지 전 과정을 바로 체험 가능.
+- **실행 환경:** Python 3.11, Docker / docker-compose (PostgreSQL 16 + Redis 포함), Gemini API 키·Notion OAuth 앱 필요
+- **실행 방법:** 아래 "방법 A/B" 참고. 운영 배포본은 https://ai-champion.madcamp-kaist.org (배포 섹션 참고)
 - **시연 영상 / 이미지:** (선택)
 
 백엔드 관련 파일은 전부 `backend/` 아래에 있습니다 (프론트엔드가 추가되면 `frontend/`가 별도로 생길 예정).
@@ -210,12 +223,12 @@ uv run pytest
 
 | 분류 | 사용 기술 |
 |---|---|
-| 핵심 기술 | FastAPI, Pydantic |
+| 핵심 기술 | FastAPI, Pydantic v2 |
 | 실행 환경 | Python 3.11, uv (패키지 매니저), Docker / docker-compose |
-| 데이터 저장 | PostgreSQL 16 + pgvector, Redis |
-| 마이그레이션 | Alembic |
-| 외부 API / 서비스 | Gemini API, Notion API |
-| 기타 | 학교 ML 서버(GPU, CAMP-10) — 임베딩/RAG 서빙용, KCloud VPN 필요 |
+| 데이터 저장 | PostgreSQL 16(`pgvector/pgvector` 이미지 사용하나 벡터 기능은 미사용, Notion 연동 상태 추적 전용) + SQLAlchemy + Alembic. Redis는 인프라만 구성, 로직에서는 미사용 |
+| 외부 API / 서비스 | Gemini API(`google-genai`), Notion API(Public Integration OAuth), Semantic Scholar / arXiv / GitHub / Tavily(BP 리서치) |
+| 배포 / 인프라 | KCLOUD VM + Docker, Cloudflare Tunnel(DNS 셀프서비스 API로 서브도메인·터널 발급), systemd 타이머 기반 폴링 자동 배포, GitHub Actions(테스트 CI) |
+| 기타 | 학교 ML 서버(GPU, KCLOUD) — 파인튜닝 실험용(스프린트1 범위 밖), KCLOUD VPN 필요 |
 
 ---
 
