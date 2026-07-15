@@ -7,7 +7,7 @@
 리서치 레이어(기능 3)는 계약 §2.4대로 클라이언트에 노출하지 않고 서버 내부에서만 호출한다.
 """
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from app.contracts.goal import GoalDefinition
@@ -50,15 +50,19 @@ def diagnose(onboarding: OnboardingData) -> DiagnosisResult:
 @router.post("/publish-report", response_model=PublishReportResponse)
 def publish(payload: PublishReportRequest) -> PublishReportResponse:
     research = run_research(payload.goal) if payload.roadmap is not None else None
-    result = publish_report(
-        goal=payload.goal,
-        onboarding=payload.onboarding,
-        account_id=payload.account_id,
-        diagnosis=payload.diagnosis,
-        roadmap=payload.roadmap,
-        parent_page_id=payload.parent_page_id,
-        research=research,
-    )
+    try:
+        result = publish_report(
+            goal=payload.goal,
+            onboarding=payload.onboarding,
+            account_id=payload.account_id,
+            diagnosis=payload.diagnosis,
+            roadmap=payload.roadmap,
+            parent_page_id=payload.parent_page_id,
+            research=research,
+        )
+    except ValueError as e:
+        # 계정 미연결·공유 페이지 없음·로드맵 누락 등 사용자가 고칠 수 있는 상태 — 500 대신 이유를 그대로 보여준다.
+        raise HTTPException(status_code=400, detail=str(e)) from e
     return PublishReportResponse(notion_url=result["url"], page_id=result["page_id"])
 
 
@@ -67,13 +71,16 @@ def generate_and_publish(payload: GenerateAndPublishRequest) -> PublishReportRes
     diag = diagnose_and_set_goal(payload.onboarding)
     research = run_research(diag.goal)
     roadmap = generate_roadmap(diag.goal, research, payload.onboarding)
-    result = publish_report(
-        goal=diag.goal,
-        onboarding=payload.onboarding,
-        account_id=payload.account_id,
-        diagnosis=diag.maturity,
-        roadmap=roadmap,
-        parent_page_id=payload.parent_page_id,
-        research=research,
-    )
+    try:
+        result = publish_report(
+            goal=diag.goal,
+            onboarding=payload.onboarding,
+            account_id=payload.account_id,
+            diagnosis=diag.maturity,
+            roadmap=roadmap,
+            parent_page_id=payload.parent_page_id,
+            research=research,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
     return PublishReportResponse(notion_url=result["url"], page_id=result["page_id"])

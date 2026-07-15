@@ -34,3 +34,14 @@ def save_connection(
 
 def get_connection(session: Session, account_id: str) -> NotionConnection | None:
     return session.get(NotionConnection, account_id)
+
+
+def delete_connection(session: Session, account_id: str) -> bool:
+    """계정 연결을 끊는다(워크스페이스 전환 전 초기화, 테스트 시 미연결 상태 재현 등에 쓴다).
+    연결이 있었으면 True, 애초에 없었으면 False를 반환한다."""
+    connection = session.get(NotionConnection, account_id)
+    if connection is None:
+        return False
+    session.delete(connection)
+    session.commit()
+    return True

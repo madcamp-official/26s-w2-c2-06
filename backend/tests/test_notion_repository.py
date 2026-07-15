@@ -3,7 +3,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.core.db import Base
-from app.notion.repository import get_connection, save_connection
+from app.notion.repository import delete_connection, get_connection, save_connection
 
 
 @pytest.fixture()
@@ -49,3 +49,18 @@ def test_save_connection_upserts_existing_account(session):
 
     connection = get_connection(session, "acc-1")
     assert connection.access_token == "new-tok"
+
+
+def test_delete_connection_removes_existing_and_reports_true(session):
+    save_connection(
+        session, account_id="acc-1", access_token="tok-1", workspace_id="ws-1", bot_id="bot-1"
+    )
+
+    result = delete_connection(session, "acc-1")
+
+    assert result is True
+    assert get_connection(session, "acc-1") is None
+
+
+def test_delete_connection_reports_false_when_nothing_to_delete(session):
+    assert delete_connection(session, "no-such-account") is False
