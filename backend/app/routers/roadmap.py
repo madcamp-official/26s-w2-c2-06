@@ -1,3 +1,4 @@
+import httpx
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
@@ -34,6 +35,15 @@ class PublishRoadmapResponse(BaseModel):
     page_id: str
 
 
+def _raise_publish_error(e: Exception) -> None:
+    """Notion 발행 실패를 500 대신 원인이 보이는 상태로 바꾼다 — ValueError는 사용자가 고칠 수
+    있는 상태(계정 미연결 등, 400), httpx.HTTPStatusError는 Notion API 자체가 거절한 요청(예:
+    스키마 검증 실패, 502)이다. 두 경우 다 배포 환경에서 서버 로그 없이도 브라우저 Network 탭에서
+    바로 원인을 볼 수 있게 한다."""
+    status = 400 if isinstance(e, ValueError) else 502
+    raise HTTPException(status_code=status, detail=str(e)) from e
+
+
 @router.post("/generate", response_model=RoadmapResult)
 def generate(payload: GenerateRoadmapRequest) -> RoadmapResult:
     research = run_research(payload.goal)
@@ -54,9 +64,8 @@ def publish(payload: PublishRoadmapRequest) -> PublishRoadmapResponse:
             payload.parent_page_id,
             research,
         )
-    except ValueError as e:
-        # 계정 미연결·공유 페이지 없음 등 사용자가 고칠 수 있는 상태 — 500 대신 이유를 그대로 보여준다.
-        raise HTTPException(status_code=400, detail=str(e)) from e
+    except (ValueError, httpx.HTTPStatusError) as e:
+        _raise_publish_error(e)
     return PublishRoadmapResponse(notion_url=result["url"], page_id=result["page_id"])
 
 
@@ -68,6 +77,6 @@ def generate_and_publish(payload: GenerateAndPublishRequest) -> PublishRoadmapRe
         result = publish_roadmap(
             payload.goal, roadmap, payload.onboarding, payload.account_id, payload.parent_page_id, research
         )
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
+    except (ValueError, httpx.HTTPStatusError) as e:
+        _raise_publish_error(e)
     return PublishRoadmapResponse(notion_url=result["url"], page_id=result["page_id"])
