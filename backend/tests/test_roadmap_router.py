@@ -104,10 +104,12 @@ def test_publish_endpoint_returns_400_with_message_when_account_not_connected(mo
     assert "연결되어 있지 않습니다" in response.json()["detail"]
 
 
-def test_publish_endpoint_returns_502_with_notion_error_body_on_api_failure(monkeypatch):
+def test_publish_endpoint_returns_422_with_notion_error_body_on_api_failure(monkeypatch):
     """Notion API 자체가 요청을 거절하면(예: 스키마 검증 실패) 예전엔 그냥 500으로 뭉개져서
-    서버 로그 없이는 원인을 알 수 없었다 — 이제 Notion이 돌려준 에러 바디를 그대로 502 응답의
-    detail에 담아 브라우저 Network 탭에서 바로 보이게 한다."""
+    서버 로그 없이는 원인을 알 수 없었다 — 이제 Notion이 돌려준 에러 바디를 그대로 detail에 담아
+    브라우저 Network 탭에서 바로 보이게 한다. 502/504가 아니라 422를 쓰는 이유: Cloudflare가
+    502/504는 origin 응답을 무시하고 자체 브랜드 에러 페이지로 덮어써서 실제 원인이 완전히
+    가려지는 사고가 실 운영에서 있었다(2026-07-15) — 4xx는 그대로 통과시킨다."""
     import httpx
 
     def fake_publish_roadmap(goal, roadmap, onboarding, account_id, parent_page_id=None, research=None):
@@ -133,7 +135,7 @@ def test_publish_endpoint_returns_502_with_notion_error_body_on_api_failure(monk
 
     response = client.post("/roadmap/publish", json=payload)
 
-    assert response.status_code == 502
+    assert response.status_code == 422
     assert "x_axis.type should be defined" in response.json()["detail"]
 
 

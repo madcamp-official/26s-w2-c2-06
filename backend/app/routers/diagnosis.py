@@ -8,7 +8,7 @@
 """
 
 import httpx
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 from pydantic import BaseModel
 
 from app.contracts.goal import GoalDefinition
@@ -19,6 +19,7 @@ from app.diagnosis import DiagnosisResult, diagnose_and_set_goal
 from app.notion.publish import publish_report
 from app.research import run_research
 from app.roadmap import generate_roadmap
+from app.routers.notion_errors import raise_publish_error
 
 router = APIRouter(prefix="/diagnosis", tags=["diagnosis"])
 
@@ -43,16 +44,6 @@ class PublishReportResponse(BaseModel):
     page_id: str
 
 
-def _raise_publish_error(e: Exception) -> None:
-    """Notion 발행 실패를 500 대신 원인이 보이는 상태로 바꾼다 — ValueError는 사용자가 고칠 수
-    있는 상태(계정 미연결 등, 400), httpx.HTTPStatusError는 Notion API 자체가 거절한 요청(예:
-    스키마 검증 실패, 502)이다. 두 경우 다 배포 환경에서 서버 로그 없이도 브라우저 Network 탭에서
-    바로 원인을 볼 수 있게 한다(원래는 어떤 예외든 그냥 500으로 뭉개져 디버깅이 서버 로그
-    접근 없이는 불가능했다)."""
-    status = 400 if isinstance(e, ValueError) else 502
-    raise HTTPException(status_code=status, detail=str(e)) from e
-
-
 @router.post("/diagnose", response_model=DiagnosisResult)
 def diagnose(onboarding: OnboardingData) -> DiagnosisResult:
     return diagnose_and_set_goal(onboarding)
@@ -72,7 +63,7 @@ def publish(payload: PublishReportRequest) -> PublishReportResponse:
             research=research,
         )
     except (ValueError, httpx.HTTPStatusError) as e:
-        _raise_publish_error(e)
+        raise_publish_error(e)
     return PublishReportResponse(notion_url=result["url"], page_id=result["page_id"])
 
 
@@ -92,5 +83,5 @@ def generate_and_publish(payload: GenerateAndPublishRequest) -> PublishReportRes
             research=research,
         )
     except (ValueError, httpx.HTTPStatusError) as e:
-        _raise_publish_error(e)
+        raise_publish_error(e)
     return PublishReportResponse(notion_url=result["url"], page_id=result["page_id"])
