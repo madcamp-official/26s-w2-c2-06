@@ -57,6 +57,19 @@ def save_workspace(session: Session, record: WorkspaceRecord) -> None:
     session.commit()
 
 
+def forget_workspace(session: Session, account_id: str) -> None:
+    """저장된 워크스페이스·행 매핑을 전부 지운다 — 대시보드 페이지가 Notion에서 지워지거나
+    휴지통에 들어가 더 이상 못 쓰게 됐을 때, 다음 발행이 처음부터 새로 만들도록 한다
+    (테스트/정리 중 대시보드 페이지가 삭제되는 사고가 실 운영에서 반복됐다, 2026-07-15).
+    지워진 워크스페이스의 옛 database_id를 가리키는 행 매핑도 같이 지워야, 새 워크스페이스의
+    새 데이터베이스에 옛 페이지 ID로 잘못 업데이트를 시도하지 않는다."""
+    session.query(NotionMemberPage).filter_by(account_id=account_id).delete()
+    session.query(NotionWorkItemPage).filter_by(account_id=account_id).delete()
+    session.query(NotionTaskPage).filter_by(account_id=account_id).delete()
+    session.query(NotionWorkspace).filter_by(account_id=account_id).delete()
+    session.commit()
+
+
 def save_maturity_database(
     session: Session, account_id: str, database_id: str, data_source_id: str
 ) -> None:

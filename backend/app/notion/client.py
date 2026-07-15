@@ -70,6 +70,12 @@ def get_block_children(block_id: str, headers: dict[str, str]) -> list[dict]:
     return response.json()["results"]
 
 
+def get_page(page_id: str, headers: dict[str, str]) -> dict:
+    response = httpx.get(f"{_API_BASE}/pages/{page_id}", headers=headers, timeout=30)
+    _raise_for_status(response)
+    return response.json()
+
+
 def get_block(block_id: str, headers: dict[str, str]) -> dict:
     response = httpx.get(f"{_API_BASE}/blocks/{block_id}", headers=headers, timeout=30)
     _raise_for_status(response)

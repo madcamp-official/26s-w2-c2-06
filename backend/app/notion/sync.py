@@ -37,6 +37,7 @@ from app.notion.client import (
     create_page,
     get_block_children,
     get_data_source,
+    get_page,
     list_views,
     update_callout_text,
     update_data_source_properties,
@@ -80,6 +81,7 @@ from app.notion.schemas import (
 )
 from app.notion.tracking_repository import (
     WorkspaceRecord,
+    forget_workspace,
     get_member_page_id,
     get_task_page_id,
     get_work_item_page_id,
@@ -151,12 +153,30 @@ def _sort_table_by_select_ascending(view_id: str, property_name: str, headers: d
     update_view_sorts(view_id, [{"property": property_name, "direction": "ascending"}], headers)
 
 
+def _dashboard_page_still_usable(dashboard_page_id: str, headers: dict[str, str]) -> bool:
+    """저장해 둔 대시보드 페이지가 지금도 실제로 쓸 수 있는지 확인한다 — 지워졌거나(404) 휴지통에
+    들어갔으면(in_trash) 그 아래에 아무것도 만들 수 없다. 조회 자체가 실패해도(네트워크 문제 등)
+    안전한 쪽으로 판단해 재사용을 포기하고 새로 만든다."""
+    try:
+        page = get_page(dashboard_page_id, headers)
+    except Exception:
+        return False
+    return not page.get("in_trash", False)
+
+
 def _ensure_workspace(
     session: Session, account_id: str, parent_page_id: str, headers: dict[str, str], goal_text: str = ""
 ) -> WorkspaceRecord:
     existing = get_workspace(session, account_id)
     if existing is not None:
-        return existing
+        if _dashboard_page_still_usable(existing.dashboard_page_id, headers):
+            return existing
+        # 저장된 대시보드 페이지가 Notion에서 삭제되거나 휴지통에 들어가 더 이상 못 쓴다 — 테스트/
+        # 정리 중 대시보드 페이지가 지워지는 사고가 실 운영에서 세 번이나 반복됐다(2026-07-15).
+        # 예전엔 이걸 사람이 직접 DB에서 지워줘야 했는데, 이제 발행 자체가 스스로 감지하고
+        # 새 워크스페이스를 만든다 — 옛 매핑이 남아있으면 새 데이터베이스에 옛 페이지 ID로 잘못
+        # 업데이트를 시도하니 먼저 싹 지운다.
+        forget_workspace(session, account_id)
 
     # 대시보드 페이지를 먼저 만들고, 데이터베이스들을 이 페이지를 parent로 생성한다 — 그러면
     # Notion이 각 데이터베이스의 child_database 블록을 페이지 끝에 "생성한 순서대로" 자동으로
