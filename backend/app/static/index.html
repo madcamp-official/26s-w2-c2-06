@@ -370,10 +370,24 @@ document.getElementById("btnSample").onclick = () => {
   saveState();
 };
 
+function resetForm() {
+  document.getElementById("industry").value = "";
+  document.getElementById("team_size").value = 8;
+  ["work_categories","ai_level","has_guideline","external_ai","designated_tools","erp_integrated"]
+    .forEach(id => setChips(id, []));
+  document.getElementById("variance").value = "";
+  document.getElementById("narrative").value = "";
+  document.getElementById("taskRows").innerHTML = "";
+  document.getElementById("memberRows").innerHTML = "";
+  document.getElementById("extractHint").textContent = "";
+  document.getElementById("formErr").innerHTML = "";
+  document.getElementById("result").innerHTML = "";
+}
+
 document.getElementById("btnClear").onclick = () => {
   if (!confirm("입력한 내용과 생성된 리포트를 모두 지울까요?")) return;
   localStorage.removeItem(STORAGE_KEY);
-  location.reload();
+  resetForm();
 };
 
 document.getElementById("btnGenerate").onclick = async () => {
